@@ -1,7 +1,8 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, Camera, Sparkles } from 'lucide-react';
-import { ASSETS, BACKGROUNDS, PRELOAD_IMAGE_URLS, assetPhotos, filters, frames, stickers } from './constants/assets.js';
+import { ASSETS, BACKGROUNDS, PRELOAD_IMAGE_URLS, filters, frames, stickers } from './constants/assets.js';
+import { getPreviewPhotos, getStripPhotos } from './utils/stripPhotos.js';
 import { generateShuffleDecorations, triggerMagicFlashOnStrip } from './utils/shuffleDecorations.js';
 import { getFormattedTimestamp } from './utils/timestamp.js';
 import { AmbientLayers } from './components/AmbientLayers.jsx';
@@ -130,10 +131,26 @@ export default function App() {
     css: activeFilter.css === 'none' ? '' : `${activeFilter.css} contrast(${1 + grain / 420}) brightness(${1 + lightLeak / 600})`,
   }), [activeFilter, grain, lightLeak]);
 
-  const stripPhotos = useMemo(() => Array.from({ length: mode }, (_, index) => {
-    if (captured[index]) return captured[index];
-    return assetPhotos[index % assetPhotos.length];
-  }), [captured, mode]);
+  const stripPhotos = useMemo(() => getStripPhotos(captured, mode), [captured, mode]);
+
+  /* Preview-only filler for Hero / template thumbnails. Never exported. */
+  const previewPhotos = useMemo(() => getPreviewPhotos(captured, mode), [captured, mode]);
+
+  const stripComplete = captured.length >= mode && mode > 0;
+  const missingCount = Math.max(0, mode - captured.length);
+
+  const handleModeChange = useCallback((nextMode) => {
+    if (nextMode === mode) return;
+    if (captured.length > nextMode) {
+      const hidden = captured.length - nextMode;
+      const ok = window.confirm(
+        `Switch to ${nextMode} photos? The last ${hidden} captured photo${hidden === 1 ? '' : 's'} will be removed from the strip.`
+      );
+      if (!ok) return;
+      setCaptured((prev) => prev.slice(0, nextMode));
+    }
+    setMode(nextMode);
+  }, [captured.length, mode]);
 
   const nextTrack = useCallback(() => {
     setTrackIndex((prev) => (prev + 1) % ASSETS.playlist.length);
@@ -319,7 +336,7 @@ export default function App() {
           >
             <Hero
               onStart={() => { requestCamera(); onStartBooth(); }}
-              photos={stripPhotos}
+              photos={previewPhotos}
               filter={selectedFilter}
               timestamp={timestamp}
             />
@@ -328,7 +345,7 @@ export default function App() {
                 isOpen={isBoothOpen}
                 setOpen={setBoothOpen}
                 mode={mode}
-                setMode={setMode}
+                setMode={handleModeChange}
                 timer={timer}
                 setTimer={setTimer}
                 activeFilter={selectedFilter}
@@ -358,7 +375,7 @@ export default function App() {
                 setEditorTab={setEditorTab}
               />
             </section>
-            <TemplateRail frame={frame} setFrame={setFrame} photos={stripPhotos} filter={selectedFilter} accent={accent} mode={mode} compact />
+            <TemplateRail frame={frame} setFrame={setFrame} photos={previewPhotos} filter={selectedFilter} accent={accent} mode={mode} compact />
             {captured.length > 0 && (
               <motion.div
                 className="go-to-editor-bar"
@@ -369,10 +386,10 @@ export default function App() {
                 <div className="editor-bar-inner">
                   <div className="editor-bar-info">
                     <span className="editor-bar-count">{captured.length}/{mode}</span>
-                    <span>photos captured</span>
+                    <span>{stripComplete ? 'photos captured' : `${missingCount} more needed`}</span>
                   </div>
                   <button type="button" className="editor-bar-btn" onClick={goToEditor}>
-                    Edit & Download →
+                    {stripComplete ? 'Edit & Download →' : 'Continue Editing →'}
                   </button>
                 </div>
               </motion.div>
@@ -398,8 +415,23 @@ export default function App() {
             </header>
 
             <div className="editor-split">
+              {captured.length === 0 ? (
+                <div className="editor-empty" role="status" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px 20px', background: 'rgba(255,255,255,.7)', borderRadius: 16 }}>
+                  <h2 style={{ margin: '0 0 8px' }}>No photos yet</h2>
+                  <p style={{ margin: '0 0 16px', color: '#655d56' }}>Capture photos or import images to start editing. We never fill your strip with sample photos.</p>
+                  <button type="button" className="editor-bar-btn" onClick={goToCapture}>
+                    Back to Booth
+                  </button>
+                </div>
+              ) : (
+              <>
               <div className="editor-strip-col">
                 <div className="editor-strip-canvas">
+                  {!stripComplete && (
+                    <p role="status" style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#8e104d', background: '#ffe0ed', borderRadius: 12, padding: '8px 12px', margin: '0 0 12px' }}>
+                      Strip incomplete ({captured.length}/{mode}) — export will include only your {captured.length} photo{captured.length === 1 ? '' : 's'}.
+                    </p>
+                  )}
                   <PhotoResult
                     frame={frame}
                     photos={stripPhotos}
@@ -444,7 +476,7 @@ export default function App() {
                 </div>
 
                 <div className="editor-controls-card">
-                  <TemplateRail frame={frame} setFrame={setFrame} photos={stripPhotos} filter={selectedFilter} accent={accent} mode={mode} compact />
+                  <TemplateRail frame={frame} setFrame={setFrame} photos={previewPhotos} filter={selectedFilter} accent={accent} mode={mode} compact />
                 </div>
 
                 <div className="editor-controls-card">
@@ -534,6 +566,8 @@ export default function App() {
                   />
                 </div>
               </div>
+              </>
+              )}
             </div>
 
             <Footer />

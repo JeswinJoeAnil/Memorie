@@ -195,7 +195,12 @@ function PhotoResultComponent({
         onClick={onStripBackdropClick}
       >
         <div className="result-meta">{timestamp.time} / {timestamp.date}</div>
-        {photos.map((photo, index) => (
+        {(!photos || photos.length === 0) && (
+          <div role="status" style={{ padding: '32px 16px', textAlign: 'center', background: 'rgba(0,0,0,.06)', borderRadius: 12, fontSize: 13, fontWeight: 700, color: '#655d56' }}>
+            No photos yet — your captures will appear here. Sample images are never added to your strip.
+          </div>
+        )}
+        {(photos || []).map((photo, index) => (
           <DraggablePhoto
             key={`photo-${index}`}
             photo={photo}

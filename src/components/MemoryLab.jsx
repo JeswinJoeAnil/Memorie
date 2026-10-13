@@ -70,6 +70,10 @@ function MemoryLabComponent(props) {
       setExportStatus('That export format is not available yet.');
       return;
     }
+    if (!Array.isArray(photos) || photos.length === 0) {
+      setExportStatus('Capture photos first — nothing to download yet.');
+      return;
+    }
 
     setDeveloping(type);
     setExportStatus(`Preparing ${type.toUpperCase()} download...`);
@@ -130,12 +134,17 @@ function MemoryLabComponent(props) {
 
   /* ── exportOnly mode: only render export buttons + overlays ── */
   if (exportOnly) {
+    const photoCount = Array.isArray(photos) ? photos.length : 0;
+    const hasPhotos = photoCount > 0;
+    const incomplete = hasPhotos && typeof mode === 'number' && photoCount < mode;
     return (
       <>
         <div className="export-grid">
-          <button type="button" onClick={() => exportCanvas('png')}><ImageIcon size={18} /> Photo Strip <span>PNG</span><Download size={16} /></button>
-          <button type="button" onClick={() => exportCanvas('jpg')}><Grid2X2 size={18} /> Collage <span>JPG</span><Download size={16} /></button>
+          <button type="button" onClick={() => exportCanvas('png')} disabled={!hasPhotos} title={hasPhotos ? 'Download your photos' : 'Capture photos first'}><ImageIcon size={18} /> Photo Strip <span>PNG</span><Download size={16} /></button>
+          <button type="button" onClick={() => exportCanvas('jpg')} disabled={!hasPhotos} title={hasPhotos ? 'Download your photos' : 'Capture photos first'}><Grid2X2 size={18} /> Collage <span>JPG</span><Download size={16} /></button>
         </div>
+        {!hasPhotos && <p className="export-status" role="status">Capture photos first — we never export sample photos.</p>}
+        {incomplete && <p className="export-status" role="status">Incomplete strip ({photoCount}/{mode}) — download includes only your photos.</p>}
         {exportStatus && <p className="export-status" role="status" aria-live="polite">{exportStatus}</p>}
         <AnimatePresence>
           {resultImage && (
