@@ -58,7 +58,7 @@ export function getTierConfig(tier) {
         // Temporal smoothing: higher = steadier, lower = more responsive
         temporalAlpha: 0.65, // weight of current frame
         maskThresholdLow: 0.35,
-        maskThresholdHigh: 0.72,
+        maskThresholdHigh: 0.75,
         enableShadows: true,
         enableGlow: true,
         smoothingQuality: 'medium',
@@ -75,7 +75,7 @@ export function getTierConfig(tier) {
         // not eaten on mobile. Speed comes from smaller input + lower fps,
         // never from a harsher threshold.
         maskThresholdLow: 0.35,
-        maskThresholdHigh: 0.72,
+        maskThresholdHigh: 0.75,
         enableShadows: false,
         enableGlow: false,
         smoothingQuality: 'low',
@@ -90,7 +90,7 @@ export function getTierConfig(tier) {
         segFps: 8,
         temporalAlpha: 0.6,
         maskThresholdLow: 0.35,
-        maskThresholdHigh: 0.72,
+        maskThresholdHigh: 0.75,
         enableShadows: true,
         enableGlow: true,
         smoothingQuality: 'low',

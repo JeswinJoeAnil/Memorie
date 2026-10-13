@@ -17,6 +17,7 @@
 import { FilesetResolver, ImageSegmenter } from '@mediapipe/tasks-vision';
 import {
   buildSmoothMaskImageData,
+  clampBoundsToFrame,
   cropPersonCutout,
   expandVideoBoundsForPhone,
   extractPersonBoundingBox,
@@ -361,16 +362,28 @@ class SegmentationManager {
           0.1
         );
         entry.prevBounds = segSmoothed;
-        entry.segBounds = segSmoothed;
+
+        // Edge-aligned boxes: expand ONCE in seg space, then map to video.
+        // Expanding only the video box (previous revision) made the video crop
+        // larger than the mask crop, so the stretched mask leaked white wall
+        // as a halo. Expanding before mapping keeps both crops on the same content.
+        const segExpanded = expandVideoBoundsForPhone(segSmoothed, {
+          topPad: 0.05,
+          sidePad: 0.04,
+          bottomPad: 0.02,
+          minWidth: 0.4,
+          minHeight: 0.4,
+        });
+        entry.segBounds = segExpanded;
 
         // Map square-AI box back to full-video coordinates (cover-fit inverse),
-        // then expand phone-first so close-up shoulders/hair always fit.
+        // then clamp without further growth to preserve mask alignment.
         // Without this mapping, portrait phones got a squeezed box that cut
         // shoulders with a straight edge.
         const vW = videoElement.videoWidth || 0;
         const vH = videoElement.videoHeight || 0;
-        const mapped = mapCoverFitBoundsToVideo(segSmoothed, vW, vH, this.config.segInputSize);
-        entry.smoothedBounds = expandVideoBoundsForPhone(mapped);
+        const mapped = mapCoverFitBoundsToVideo(segExpanded, vW, vH, this.config.segInputSize);
+        entry.smoothedBounds = clampBoundsToFrame(mapped);
 
         entry.hasMask = true;
         entry.lastSegmentTime = now;

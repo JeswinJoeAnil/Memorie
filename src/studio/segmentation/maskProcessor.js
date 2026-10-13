@@ -262,6 +262,25 @@ export function expandVideoBoundsForPhone(videoBounds, opts = {}) {
 }
 
 /**
+ * Clamps a normalized box into the [0,1] frame without growing it.
+ * Use after mapping so an expanded seg-space box stays edge-aligned
+ * with its mask counterpart.
+ */
+export function clampBoundsToFrame(bounds) {
+  if (!bounds) return bounds;
+  let { normX, normY, normWidth, normHeight, detected } = bounds;
+  let w = Math.min(1, Math.max(0.05, normWidth));
+  let h = Math.min(1, Math.max(0.05, normHeight));
+  let nx = normX;
+  let ny = normY;
+  if (nx < 0) nx = 0;
+  if (ny < 0) ny = 0;
+  if (nx + w > 1) nx = Math.max(0, 1 - w);
+  if (ny + h > 1) ny = Math.max(0, 1 - h);
+  return { normX: nx, normY: ny, normWidth: w, normHeight: h, detected: !!detected };
+}
+
+/**
  * Crops and masks the video source to produce a clean, transparent person cutout in PERSON SPACE.
  * videoBounds are in full-video normalized space; maskBounds (optional) are in
  * mask-canvas normalized space. When the mask comes from a square cover-fit AI
