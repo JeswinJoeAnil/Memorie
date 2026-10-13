@@ -1,8 +1,9 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, Camera, Sparkles } from 'lucide-react';
-import { ASSETS, BACKGROUNDS, PRELOAD_IMAGE_URLS, filters, frames, stickers } from './constants/assets.js';
+import { ASSETS, BACKGROUNDS, PRELOAD_IMAGE_URLS, customTemplates, filters, frames, stickers } from './constants/assets.js';
 import { getPreviewPhotos, getStripPhotos } from './utils/stripPhotos.js';
+import { loadDraft, saveDraft } from './utils/draftStorage.js';
 import { generateShuffleDecorations, triggerMagicFlashOnStrip } from './utils/shuffleDecorations.js';
 import { getFormattedTimestamp } from './utils/timestamp.js';
 import { AmbientLayers } from './components/AmbientLayers.jsx';
@@ -79,35 +80,65 @@ export default function App() {
   const [previewScale, setPreviewScale] = useState(1);
   const [previewWidth, setPreviewWidth] = useState(380);
   const stripElementRef = useRef(null);
+  const restoredRef = useRef(false);
 
-  /* Persist small settings + captures (quota-guarded) so reload doesn't wipe work */
+  /* Restore full draft (photos + edits) from IndexedDB — big enough for dataURLs */
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('memorie-draft');
-      if (raw) {
-        const d = JSON.parse(raw);
-        if (Array.isArray(d.captured)) setCaptured(d.captured.slice(0, 6));
+    let live = true;
+    loadDraft().then((d) => {
+      if (!live || !d) {
+        restoredRef.current = true;
+        return;
+      }
+      try {
+        if (Array.isArray(d.captured)) setCaptured(d.captured.filter((x) => typeof x === 'string').slice(0, 6));
         if (typeof d.mode === 'number' && [2, 3, 4, 6].includes(d.mode)) setMode(d.mode);
         if (d.frameId) {
-          const f = [...frames].find((x) => x.id === d.frameId);
+          const f = [...frames, ...customTemplates].find((x) => x.id === d.frameId);
           if (f) setFrame(f);
         }
         if (d.filterId) {
           const fl = filters.find((x) => x.id === d.filterId);
           if (fl) setActiveFilter(fl);
         }
+        if (d.timestamp?.time && d.timestamp?.date) setTimestamp(d.timestamp);
+        if (Array.isArray(d.decorations)) setDecorations(d.decorations.slice(0, 60));
+        if (Array.isArray(d.doodlePaths)) setDoodlePaths(d.doodlePaths.slice(0, 200));
+        if (d.fitSettings && typeof d.fitSettings === 'object') setFitSettings(d.fitSettings);
+        if (d.photoScales && typeof d.photoScales === 'object') setPhotoScales(d.photoScales);
+        if (d.stripBackground?.id) {
+          const bg = BACKGROUNDS.find((x) => x.id === d.stripBackground.id);
+          if (bg) setStripBackground(bg);
+        }
+        if (typeof d.accent === 'string') setAccent(d.accent);
+        if (typeof d.zoom === 'number' && d.zoom >= 0.5 && d.zoom <= 2) setZoom(d.zoom);
+        if (typeof d.rotation === 'number' && d.rotation >= -45 && d.rotation <= 45) setRotation(d.rotation);
+        if (typeof d.grain === 'number') setGrain(d.grain);
+        if (typeof d.lightLeak === 'number') setLightLeak(d.lightLeak);
+        if (typeof d.vignette === 'number') setVignette(d.vignette);
+        if (d.doodleBrush?.color) setDoodleBrush(d.doodleBrush);
+      } finally {
+        restoredRef.current = true;
       }
-    } catch { /* corrupted draft — start fresh */ }
+    }).catch(() => {
+      restoredRef.current = true;
+    });
+    return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* Autosave draft (debounced) — skipped until restore finishes so reload never wipes */
   useEffect(() => {
-    try {
-      localStorage.setItem('memorie-draft', JSON.stringify({
+    if (!restoredRef.current) return;
+    const t = window.setTimeout(() => {
+      saveDraft({
         captured: captured.slice(0, 6), mode, frameId: frame.id, filterId: activeFilter.id, timestamp,
-      }));
-    } catch { /* quota full — skip saving photos */ }
-  }, [captured, mode, frame.id, activeFilter.id, timestamp]);
+        decorations: decorations.slice(0, 60), doodlePaths: doodlePaths.slice(0, 200),
+        fitSettings, photoScales, stripBackground, accent, zoom, rotation, grain, lightLeak, vignette, doodleBrush,
+      }).catch(() => { /* storage full/blocked — keep working in memory */ });
+    }, 600);
+    return () => window.clearTimeout(t);
+  }, [captured, mode, frame.id, activeFilter.id, timestamp, decorations, doodlePaths, fitSettings, photoScales, stripBackground, accent, zoom, rotation, grain, lightLeak, vignette, doodleBrush]);
 
   /* Warn only during active shooting/export — not on ordinary edits */
   useEffect(() => {
