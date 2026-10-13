@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { assetPhotos } from '../constants/assets.js';
 import { encodeVideoFrameToStrip } from '../utils/capture.js';
+import { burstConfirmMessage, fullStripMessage, isStripFull, needsBurstConfirm } from '../utils/captureGuards.js';
 import { getFormattedTimestamp } from '../utils/timestamp.js';
 import { CameraOverlay } from './CameraOverlay.jsx';
 
@@ -197,13 +198,18 @@ function CameraBoothComponent({
       return;
     }
 
+    /* Never silently overwrite a full strip */
+    if (isStripFull(capturedRef.current.length, mode)) {
+      setStatusMessage(fullStripMessage(mode));
+      return;
+    }
+
     shootingRef.current = true;
     setShooting(true);
     setOpen(true);
 
     const prevBefore = capturedRef.current;
-    const isFull = prevBefore.length >= mode;
-    setShotIndex(isFull ? 1 : prevBefore.length + 1);
+    setShotIndex(prevBefore.length + 1);
 
     if (timer > 0) {
       for (let t = timer; t >= 1; t--) {
@@ -214,8 +220,7 @@ function CameraBoothComponent({
     setCountdown(null);
 
     const prev = capturedRef.current;
-    const base = prev.length >= mode ? [] : prev;
-    const next = await captureOnePhoto(base);
+    const next = await captureOnePhoto(prev);
     setCaptured(next);
     setStatusMessage(`Captured photo ${Math.min(next.length, mode)} of ${mode}.`);
 
@@ -233,6 +238,13 @@ function CameraBoothComponent({
       if (onRequestCamera) onRequestCamera();
       setStatusMessage('Enable the camera first — waiting for permission...');
       return;
+    }
+
+    /* Burst replaces the whole roll — confirm first when photos exist */
+    const existing = capturedRef.current.length;
+    if (needsBurstConfirm(existing)) {
+      const ok = window.confirm(burstConfirmMessage(existing, totalShots));
+      if (!ok) return;
     }
 
     shootingRef.current = true;
@@ -367,7 +379,7 @@ function CameraBoothComponent({
                 </div>
               </div>
               <div className="secondary-actions" style={{ display: 'flex', gap: '8px' }}>
-                <button type="button" className="pill-button" onClick={() => { setCaptured([]); setStatusMessage('Roll cleared.'); }} disabled={captured.length === 0}>Clear roll</button>
+                <button type="button" className="pill-button" onClick={() => { if (captured.length === 0) return; const ok = window.confirm(`Clear all ${captured.length} photos? This cannot be undone.`); if (!ok) return; setCaptured([]); setStatusMessage('Roll cleared.'); }} disabled={captured.length === 0}>Clear roll</button>
                 <button type="button" className="pill-button import-btn" onClick={() => document.getElementById('booth-file-upload').click()} aria-controls="booth-file-upload">
                   <Upload size={16} /> Import
                 </button>
