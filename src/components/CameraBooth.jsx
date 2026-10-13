@@ -334,7 +334,7 @@ function CameraBoothComponent({
             {!streaming && <img src={assetPhotos[captured.length % assetPhotos.length]} className="live-video fallback-video" style={{ filter: activeFilter.css }} alt="" />}
             <CameraOverlay timestamp={timestamp} />
             <AnimatePresence mode="wait">
-              {countdown && <motion.div className="countdown" role="timer" aria-live="assertive" aria-atomic="true" key={countdown} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.5, opacity: 0 }}>{countdown}</motion.div>}
+              {countdown && <motion.div className="countdown" role="timer" aria-live="polite" aria-atomic="true" key={countdown} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.5, opacity: 0 }}>{countdown}</motion.div>}
             </AnimatePresence>
             {(cameraError || error) && <div className="camera-error" role="alert">{cameraError || error}</div>}
           </div>

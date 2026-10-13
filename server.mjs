@@ -35,6 +35,15 @@ createServer((request, response) => {
 
     let filePath = join(root, requested === '/' ? 'index.html' : requested);
 
+    /* Built with base '/Memorie/' — strip it when serving from root */
+    if (!existsSync(filePath) && (requested === '/Memorie' || requested.startsWith('/Memorie/'))) {
+      const stripped = requested.replace(/^\/Memorie/, '') || '/';
+      const tryPath = join(root, stripped === '/' ? 'index.html' : stripped);
+      if (tryPath.startsWith(root) && existsSync(tryPath)) {
+        filePath = tryPath;
+      }
+    }
+
     if (!filePath.startsWith(root) || !existsSync(filePath)) {
       filePath = join(root, 'index.html');
     }

@@ -2234,7 +2234,7 @@ main {
   }
 
   .mode-stack {
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     order: 1;
     gap: 8px;
   }
@@ -6970,4 +6970,23 @@ main, .hero, .studio-grid, .template-section, .booth-card {
 .template-rail {
   max-width: 100%;
   box-sizing: border-box;
+}
+
+/* Visible keyboard focus + honest disabled exports */
+:focus-visible {
+  outline: 3px solid #d4408e;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.export-grid button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.export-status {
+  font-size: 12px;
+  font-weight: 700;
+  color: #8e104d;
 }

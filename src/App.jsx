@@ -80,6 +80,47 @@ export default function App() {
   const [previewWidth, setPreviewWidth] = useState(380);
   const stripElementRef = useRef(null);
 
+  /* Persist small settings + captures (quota-guarded) so reload doesn't wipe work */
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('memorie-draft');
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (Array.isArray(d.captured)) setCaptured(d.captured.slice(0, 6));
+        if (typeof d.mode === 'number' && [2, 3, 4, 6].includes(d.mode)) setMode(d.mode);
+        if (d.frameId) {
+          const f = [...frames].find((x) => x.id === d.frameId);
+          if (f) setFrame(f);
+        }
+        if (d.filterId) {
+          const fl = filters.find((x) => x.id === d.filterId);
+          if (fl) setActiveFilter(fl);
+        }
+      }
+    } catch { /* corrupted draft — start fresh */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('memorie-draft', JSON.stringify({
+        captured: captured.slice(0, 6), mode, frameId: frame.id, filterId: activeFilter.id, timestamp,
+      }));
+    } catch { /* quota full — skip saving photos */ }
+  }, [captured, mode, frame.id, activeFilter.id, timestamp]);
+
+  /* Warn only during active shooting/export — not on ordinary edits */
+  useEffect(() => {
+    const onBeforeUnload = (e) => {
+      if (developing) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [developing]);
+
   const requestCamera = useCallback(() => {
     if (cameraRequested) return;
     setCameraRequested(true);
@@ -242,13 +283,14 @@ export default function App() {
   useEffect(() => {
     const newHash = currentPage === 'editor' ? '#editor' : '#capture';
     if (window.location.hash !== newHash) {
-      window.history.pushState(null, '', newHash);
+      // replaceState avoids trapping Back between capture<->editor
+      window.history.replaceState(null, '', newHash);
     }
   }, [currentPage]);
 
-  /* Handle browser back/forward navigation */
+  /* Handle browser back/forward navigation + manual hash edits */
   useEffect(() => {
-    const handlePopState = () => {
+    const handleNav = () => {
       if (!isValidRoute()) {
         setCurrentPage('404');
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -258,8 +300,14 @@ export default function App() {
       setCurrentPage(hash === 'editor' ? 'editor' : 'capture');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     };
+    const handlePopState = () => handleNav();
+    const handleHashChange = () => handleNav();
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handleHashChange);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handleHashChange);
+    };
   }, []);
 
   // Also check on mount for invalid pathname (direct navigation)
@@ -300,6 +348,10 @@ export default function App() {
   const handleStudioCapture = useCallback((photos, studioShotCount) => {
     /* Push group photos into the captured state and transition to strip editor */
     const photoList = Array.isArray(photos) ? photos : [photos];
+    if (captured.length > 0) {
+      const ok = window.confirm(`Replace your ${captured.length} solo photo${captured.length === 1 ? '' : 's'} with ${photoList.length} studio shot${photoList.length === 1 ? '' : 's'}?`);
+      if (!ok) return;
+    }
     const count = studioShotCount || photoList.length;
     setMode(count);
     setCaptured(photoList);
@@ -307,7 +359,7 @@ export default function App() {
     setStudioOpen(false);
     setCurrentPage('editor');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  }, [captured.length]);
 
   return (
     <main>

@@ -118,7 +118,7 @@ function TemplateRailComponent({ frame, setFrame, photos, filter, accent, compac
           </motion.button>
         ))}
 
-        {filteredCustom.length > 0 && (
+        {filteredCustom.length > 0 ? (
           <>
             <div className="template-rail-divider" aria-hidden="true" />
             {filteredCustom.map((template, index) => (
@@ -137,6 +137,8 @@ function TemplateRailComponent({ frame, setFrame, photos, filter, accent, compac
               </motion.button>
             ))}
           </>
+        ) : (
+          mode && <p role="note" style={{ fontSize: 12, color: '#655d56', padding: '8px 4px' }}>Custom 3-photo templates need 3 shots — switch strip length to 3 to use them.</p>
         )}
       </div>
     </section>

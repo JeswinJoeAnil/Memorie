@@ -60,12 +60,22 @@ for (const [rawPath, loader] of Object.entries(lazyModules)) {
  * Resolve a lazy sticker asset. Returns a promise that resolves to the URL.
  * Caches the result so subsequent calls return the already-resolved URL.
  */
-export const loadAsset = async (name) => {
+export const loadAsset = async (name) => resolveAssetAsync(name);
+
+export const resolveAssetAsync = async (name) => {
   if (!name) return '';
-  // Already eagerly resolved
-  const sync = asset(name);
-  if (sync) return sync;
-  return '';
+  if (assetMap.has(name)) return assetMap.get(name);
+  const normalized = name.replace(/^(\.\.\/)+assets\//, '');
+  if (assetMap.has(normalized)) return assetMap.get(normalized);
+  const base = name.split('/').pop();
+  if (assetMap.has(base)) return assetMap.get(base);
+  const loader = lazyLoaders.get(name) || lazyLoaders.get(normalized) || lazyLoaders.get(base);
+  if (!loader) return '';
+  const url = await loader();
+  assetMap.set(name, url);
+  if (normalized !== name) assetMap.set(normalized, url);
+  if (base !== name && base !== normalized) assetMap.set(base, url);
+  return url;
 };
 
 export const asset = (name) => {
@@ -85,13 +95,19 @@ export const asset = (name) => {
       if (normalized !== name) assetMap.set(normalized, url);
       if (base !== name && base !== normalized) assetMap.set(base, url);
     });
-    // Return a placeholder URL pointing to the raw asset path (Vite will still serve it in dev)
-    // Use the normalized path so templates/misc resolve correctly, not just stickers
-    const placeholderPath = normalized.includes('/') ? normalized : `stickers/${base}`;
-    return new URL(`../../assets/${placeholderPath}`, import.meta.url).href;
+    // Dev server can serve raw files; prod hashes break this placeholder, so
+    // return '' in prod and let callers resolve async via resolveAssetAsync().
+    if (import.meta.env?.DEV) {
+      const placeholderPath = normalized.includes('/') ? normalized : `stickers/${base}`;
+      return new URL(`../../assets/${placeholderPath}`, import.meta.url).href;
+    }
+    return '';
   }
 
-  return new URL(`../../assets/${name}`, import.meta.url).href;
+  if (import.meta.env?.DEV) {
+    return new URL(`../../assets/${name}`, import.meta.url).href;
+  }
+  return '';
 };
 
 export const ASSETS = {

@@ -12,15 +12,20 @@ function FooterComponent() {
       setTimeout(() => setSubmitStatus(''), 3000);
       return;
     }
-    setSubmitStatus("Thanks! You're on the list.");
+    try {
+      const saved = JSON.parse(localStorage.getItem('memorie-newsletter') || '[]');
+      saved.push({ email, at: new Date().toISOString() });
+      localStorage.setItem('memorie-newsletter', JSON.stringify(saved));
+    } catch { /* storage full/blocked — still confirm honestly */ }
+    setSubmitStatus("Thanks! Saved on this device (demo list — no emails sent yet).");
     setEmail('');
-    setTimeout(() => setSubmitStatus(''), 3000);
+    setTimeout(() => setSubmitStatus(''), 4000);
   }, [email]);
 
   return (
     <footer className="site-footer">
-      <img src={asset('sticker2_34.png')} alt="" className="f-sticker corner-l" aria-hidden="true" />
-      <img src={asset('stickers3_35.png')} alt="" className="f-sticker corner-r" aria-hidden="true" />
+      <img src={asset('sticker2_34.png')} alt="" className="f-sticker corner-l" aria-hidden="true" onError={(e) => { e.target.style.display = 'none'; }} />
+      <img src={asset('stickers3_35.png')} alt="" className="f-sticker corner-r" aria-hidden="true" onError={(e) => { e.target.style.display = 'none'; }} />
 
       <div className="footer-marquee" aria-hidden="true">
         <div className="marquee-content">

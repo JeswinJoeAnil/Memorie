@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect } from 'react';
+import React, { memo, useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Image as ImageIcon,
@@ -8,8 +8,26 @@ import {
   Type,
   Wand2,
 } from 'lucide-react';
-import { asset, stickerCategories, BACKGROUNDS } from '../constants/assets.js';
+import { asset, resolveAssetAsync, stickerCategories, BACKGROUNDS } from '../constants/assets.js';
 import { Slider } from './Slider.jsx';
+
+function StickerImg({ name }) {
+  const [src, setSrc] = useState(() => asset(name));
+  useEffect(() => {
+    let live = true;
+    const sync = asset(name);
+    if (sync) {
+      setSrc(sync);
+      return () => { live = false; };
+    }
+    resolveAssetAsync(name).then((url) => {
+      if (live && url) setSrc(url);
+    });
+    return () => { live = false; };
+  }, [name]);
+  if (!src) return <span aria-hidden="true" style={{ fontSize: 11, opacity: 0.6 }}>…</span>;
+  return <img src={src} alt="" aria-hidden="true" loading="lazy" decoding="async" onError={(e) => { e.target.style.display = 'none'; }} />;
+}
 
 let captionFontsInjected = false;
 function loadCaptionFonts() {
@@ -64,17 +82,17 @@ function StripEditorComponent(props) {
   }, [stripTab, activeDeco?.type]);
 
   const handleAddText = useCallback(() => {
-    const newId = Date.now().toString();
-    setDecorations([...decorations, { id: newId, type: 'text', content: 'New Text', x: 50, y: 50, rotation: 0, scaleX: 1, scaleY: 1, font: 'Inter', color: '#ffffff', bgColor: 'transparent', showBg: false }]);
+    const newId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setDecorations([...decorations, { id: newId, type: 'text', content: 'New Text', x: 50, y: 50, rotation: 0, scaleX: 1, scaleY: 1, font: 'Inter', color: '#ffffff', bgColor: '#ff5aaf', showBg: true }]);
     setActiveDecoId(newId);
   }, [decorations, setActiveDecoId, setDecorations]);
 
   const handleAddSticker = useCallback((stickerContent) => {
-    const newId = Date.now().toString();
+    const newId2 = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const isImg = stickerContent.endsWith('.png');
     const randomBg = ['#ff5aaf', '#00ffcc', '#ffcc00', '#cc00ff', '#111111', '#ff4444', '#44aaff'][Math.floor(Math.random() * 7)];
-    setDecorations([...decorations, { id: newId, type: 'sticker', content: stickerContent, isImage: isImg, x: 50, y: 50, rotation: 0, scale: 1, scaleX: 1, scaleY: 1, bgColor: randomBg, showBg: !isImg }]);
-    setActiveDecoId(newId);
+    setDecorations([...decorations, { id: newId2, type: 'sticker', content: stickerContent, isImage: isImg, x: 50, y: 50, rotation: 0, scale: 1, scaleX: 1, scaleY: 1, bgColor: randomBg, showBg: !isImg }]);
+    setActiveDecoId(newId2);
   }, [decorations, setActiveDecoId, setDecorations]);
 
   const updateActiveDeco = useCallback((updates) => {
@@ -83,9 +101,12 @@ function StripEditorComponent(props) {
   }, [activeDecoId, setDecorations]);
 
   const clearDecorations = useCallback(() => {
+    if (decorations.length === 0) return;
+    const ok = window.confirm(`Remove all ${decorations.length} decorations? This cannot be undone.`);
+    if (!ok) return;
     setDecorations([]);
     setActiveDecoId(null);
-  }, [setActiveDecoId, setDecorations]);
+  }, [decorations.length, setActiveDecoId, setDecorations]);
 
   const deleteActiveDeco = useCallback(() => {
     setDecorations(decorations.filter(d => d.id !== activeDecoId));
@@ -156,7 +177,7 @@ function StripEditorComponent(props) {
             role="tab"
             aria-selected={stripTab === tab.id}
             aria-controls={`strip-panel-${tab.id}`}
-            tabIndex={stripTab === tab.id ? 0 : -1}
+            tabIndex={0}
             className={stripTab === tab.id ? 'active' : ''}
             onClick={() => setStripTab(tab.id)}
           >
@@ -211,7 +232,7 @@ function StripEditorComponent(props) {
                   <div className="sticker-grid">
                     {category.items.map((s) => (
                       <button key={`${category.id}-${s}`} type="button" className={`sticker-chip ${s.endsWith('.png') ? 'image-sticker-chip' : ''}`} onClick={() => handleAddSticker(s)} aria-label={`Add ${s.endsWith('.png') ? 'image sticker' : s}`}>
-                        {s.endsWith('.png') ? <img src={asset(s)} alt="" aria-hidden="true" loading="lazy" decoding="async" /> : s}
+                        {s.endsWith('.png') ? <StickerImg name={s} /> : s}
                       </button>
                     ))}
                   </div>

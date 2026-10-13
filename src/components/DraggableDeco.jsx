@@ -1,7 +1,19 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, useDragControls } from 'framer-motion';
-import { asset } from '../constants/assets.js';
+import { asset, resolveAssetAsync } from '../constants/assets.js';
 import { DecoHandles } from './DecoHandles.jsx';
+
+function DecoImage({ name }) {
+  const [src, setSrc] = useState(() => asset(name));
+  useEffect(() => {
+    let live = true;
+    if (asset(name)) return () => { live = false; };
+    resolveAssetAsync(name).then((url) => { if (live && url) setSrc(url); });
+    return () => { live = false; };
+  }, [name]);
+  if (!src) return <span style={{ fontSize: 11 }}>…</span>;
+  return <img src={src} alt="" onError={(e) => { e.target.style.display = 'none'; }} style={{ width: 100, display: 'block', pointerEvents: 'none' }} draggable="false" />;
+}
 
 export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown }) {
   const elementRef = useRef(null);
@@ -14,7 +26,7 @@ export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown })
     const parentRect = parent.getBoundingClientRect();
     const dxPct = (info.delta.x / parentRect.width) * 100;
     const dyPct = (info.delta.y / parentRect.height) * 100;
-    setDecorations(prev => prev.map(d => d.id === deco.id ? { ...d, x: d.x + dxPct, y: d.y + dyPct } : d));
+    setDecorations(prev => prev.map(d => d.id === deco.id ? { ...d, x: Math.min(100, Math.max(0, d.x + dxPct)), y: Math.min(100, Math.max(0, d.y + dyPct)) } : d));
   }, [deco.id, setDecorations]);
 
   const handleDragStart = useCallback(() => {
@@ -138,7 +150,7 @@ export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown })
       whileTap={{ scale: (deco.scale ?? 1) * 1.05 }}
       transition={{ type: 'tween', duration: 0 }}
     >
-      {deco.isImage ? <img src={asset(deco.content)} alt="" onError={(e) => { e.target.style.display = 'none'; }} style={{ width: 100, display: 'block', pointerEvents: 'none' }} draggable="false" /> : deco.content}
+      {deco.isImage ? <DecoImage name={deco.content} /> : deco.content}
       {isActive && <DecoHandles deco={deco} setDecorations={setDecorations} elementRef={elementRef} />}
     </motion.div>
   );

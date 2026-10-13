@@ -2,6 +2,75 @@ import { asset } from '../constants/assets.js';
 import { applyPixelFilterAsync } from './pixelFilters.js';
 
 /**
+ * Doodles are stored normalized (0-1) so preview and export match at any size.
+ * Legacy paths stored raw pixels in ~380-wide space — scale those uniformly.
+ */
+export function doodlePointToExport(p, baseW, baseH, fallbackWidth = 380) {
+  if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') return null;
+  if (Math.abs(p.x) <= 1.5 && Math.abs(p.y) <= 1.5) {
+    return { x: p.x * baseW, y: p.y * baseH };
+  }
+  const s = baseW / (fallbackWidth || 380);
+  return { x: p.x * s, y: p.y * s };
+}
+
+export function doodleWidthToExport(path, baseW) {
+  const fallback = path?.previewWidth || 380;
+  const size = Number(path?.size) || 6;
+  return size * (baseW / fallback);
+}
+
+function drawDoodles(ctx, doodlePaths, baseW, baseH) {
+  if (!doodlePaths) return;
+  doodlePaths.forEach((path) => {
+    if (!path.points || path.points.length < 2) return;
+    const pts = path.points
+      .map((p) => doodlePointToExport(p, baseW, baseH, path.previewWidth))
+      .filter(Boolean);
+    if (pts.length < 2) return;
+    ctx.beginPath();
+    ctx.strokeStyle = path.color;
+    ctx.lineWidth = doodleWidthToExport(path, baseW);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (path.shadow) {
+      ctx.shadowBlur = path.shadow * (baseW / (path.previewWidth || 380));
+      ctx.shadowColor = path.color;
+    }
+    ctx.moveTo(pts[0].x, pts[0].y);
+    pts.slice(1).forEach((p) => ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  });
+}
+
+/**
+ * Grade one photo in isolation so background / text / stickers keep true colors.
+ * Matches preview (CSS on <img>) + premium pixel grade on photo pixels only.
+ */
+async function makeGradedPhotoCanvas(img, w, h, filter, fit, zoom) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(2, Math.round(w));
+  c.height = Math.max(2, Math.round(h));
+  const g = c.getContext('2d');
+  if (!g) return c;
+  g.filter = filter?.css || 'none';
+  if (fit === 'contain') {
+    const r = Math.min(w / img.width, h / img.height);
+    const dw = img.width * r;
+    const dh = img.height * r;
+    g.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  } else {
+    drawCover(g, img, 0, 0, w, h, zoom);
+  }
+  g.filter = 'none';
+  if (filter?.pixel) {
+    await applyPixelFilterAsync(g, filter.pixel, c.width, c.height);
+  }
+  return c;
+}
+
+/**
  * Renders the photostrip to a canvas for export.
  * Includes all photos, filters, decorations, and doodles.
  */
@@ -140,7 +209,7 @@ export async function renderExport({
     Promise.all(stickerPromises)
   ]);
 
-  // Draw Photos
+  // Draw Photos (each graded in isolation — background/text stay true)
   for (let index = 0; index < photos.length; index += 1) {
     const img = loadedPhotos[index];
     if (!img) continue;
@@ -149,6 +218,8 @@ export async function renderExport({
     const row = columns === 2 ? Math.floor(index / 2) : index;
     const x = margin + col * (slotW + gap);
     const y = topPadding + row * (slotH + gap);
+    const fit = fitSettings?.[index] || 'cover';
+    const graded = await makeGradedPhotoCanvas(img, slotW, slotH, filter, fit, zoom);
 
     ctx.save();
     ctx.translate(x + slotW / 2, y + slotH / 2);
@@ -164,17 +235,7 @@ export async function renderExport({
     ctx.fillRect(-slotW / 2 - 10, -slotH / 2 - 10, slotW + 20, slotH + 20);
     ctx.shadowColor = 'transparent';
 
-    ctx.filter = filter.css || 'none';
-    const fit = fitSettings?.[index] || 'cover';
-    if (fit === 'contain') {
-      const r = Math.min(slotW / img.width, slotH / img.height);
-      const dw = img.width * r;
-      const dh = img.height * r;
-      ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
-    } else {
-      drawCover(ctx, img, -slotW / 2, -slotH / 2, slotW, slotH, zoom);
-    }
-    ctx.filter = 'none';
+    ctx.drawImage(graded, -slotW / 2, -slotH / 2, slotW, slotH);
     ctx.restore();
   }
 
@@ -315,32 +376,13 @@ export async function renderExport({
     }
   }
 
-  // Draw Doodles
-  if (doodlePaths) {
-    doodlePaths.forEach(path => {
-      if (path.points.length < 2) return;
-      ctx.beginPath();
-      ctx.strokeStyle = path.color;
-      ctx.lineWidth = path.size;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      if (path.shadow) {
-        ctx.shadowBlur = path.shadow;
-        ctx.shadowColor = path.color;
-      }
-      ctx.moveTo(path.points[0].x, path.points[0].y);
-      path.points.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    });
-  }
+  // Draw Doodles (normalized — matches preview position + thickness)
+  drawDoodles(ctx, doodlePaths, baseW, baseH);
 
   ctx.restore();
 
-  // Premium pixel-level color grading (tone curves, split toning, HSL) via Web Worker
-  if (filter?.pixel) {
-    await applyPixelFilterAsync(ctx, filter.pixel, canvas.width, canvas.height);
-  }
+  // Note: pixel grading already applied per-photo in makeGradedPhotoCanvas,
+  // so background / text / stickers keep true colors (matches preview).
 
   return canvas;
 }
@@ -473,22 +515,15 @@ async function renderCustomTemplateExport({
     ctx.clip();
 
     // Draw photo inside the tilted clipped slot with user rotation/zoom/scale
+    // Graded in isolation so template overlay colors stay true.
+    const fit = fitSettings?.[i] || 'cover';
+    const graded = await makeGradedPhotoCanvas(img, sw, sh, filter, fit, zoom);
     ctx.save();
     ctx.rotate((rotation * Math.PI) / 180);
     const pScale = photoScales?.[i] || { x: 1, y: 1 };
     ctx.scale(pScale.x, pScale.y);
 
-    ctx.filter = filter.css || 'none';
-    const fit = fitSettings?.[i] || 'cover';
-    if (fit === 'contain') {
-      const cR = Math.min(sw / img.width, sh / img.height);
-      const dw = img.width * cR;
-      const dh = img.height * cR;
-      ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
-    } else {
-      drawCover(ctx, img, -sw / 2, -sh / 2, sw, sh, zoom);
-    }
-    ctx.filter = 'none';
+    ctx.drawImage(graded, -sw / 2, -sh / 2, sw, sh);
     ctx.restore();
     ctx.restore();
   }
@@ -606,25 +641,8 @@ async function renderCustomTemplateExport({
     }
   }
 
-  // Draw Doodles
-  if (doodlePaths) {
-    doodlePaths.forEach(path => {
-      if (path.points.length < 2) return;
-      ctx.beginPath();
-      ctx.strokeStyle = path.color;
-      ctx.lineWidth = path.size;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      if (path.shadow) {
-        ctx.shadowBlur = path.shadow;
-        ctx.shadowColor = path.color;
-      }
-      ctx.moveTo(path.points[0].x, path.points[0].y);
-      path.points.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    });
-  }
+  // Draw Doodles (normalized — matches preview position + thickness)
+  drawDoodles(ctx, doodlePaths, baseW, baseH);
 
   ctx.restore();
 

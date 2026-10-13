@@ -78,7 +78,9 @@ function MemoryLabComponent(props) {
     setDeveloping(type);
     setExportStatus(`Preparing ${type.toUpperCase()} download...`);
     try {
-      await new Promise((resolve) => window.setTimeout(resolve, 1350));
+      // No artificial delay — render immediately so repeated exports feel instant.
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      setExportStatus(`Compositing ${photos.length} photo${photos.length === 1 ? '' : 's'}...`);
       const canvas = await renderExport({
         frame,
         photos,
@@ -102,27 +104,33 @@ function MemoryLabComponent(props) {
         canvas.toBlob((value) => {
           if (value) resolve(value);
           else reject(new Error('Could not generate image.'));
-        }, type === 'png' ? 'image/png' : 'image/jpeg');
+        }, type === 'png' ? 'image/png' : 'image/jpeg', 0.92);
       });
 
       const url = URL.createObjectURL(blob);
       blobUrlsRef.current.push(url);
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
       const link = document.createElement('a');
-      link.download = `memorie-${frame.id}.${type === 'png' ? 'png' : 'jpg'}`;
+      link.download = `memorie-${stamp}-${frame.id}.${type === 'png' ? 'png' : 'jpg'}`;
       link.href = url;
+      document.body.appendChild(link);
       link.click();
-      setTimeout(() => {
-        URL.revokeObjectURL(url);
-        blobUrlsRef.current = blobUrlsRef.current.filter(u => u !== url);
-      }, 100);
-      setExportStatus(`${type.toUpperCase()} downloaded.`);
+      link.remove();
+      // Keep URL alive for mobile long-press overlay; revoke on next export/unmount/close.
+      setResultImage?.((prev) => {
+        if (typeof prev === 'string' && prev.startsWith('blob:')) {
+          try { URL.revokeObjectURL(prev); } catch { /* noop */ }
+        }
+        return url;
+      });
+      setExportStatus(`${type.toUpperCase()} ready — download started. Tap preview to save on mobile.`);
     } catch (err) {
       console.error('Export failed:', err);
       setExportStatus('Download failed. One of the assets might have failed to load.');
     } finally {
       setDeveloping(null);
     }
-  }, [accent, decorations, doodlePaths, filter, fitSettings, frame, photos, photoScales, rotation, setDeveloping, stripBackground, timestamp, vignette, zoom, previewScale, previewWidth]);
+  }, [accent, decorations, doodlePaths, filter, fitSettings, frame, photos, photoScales, rotation, setDeveloping, setResultImage, stripBackground, timestamp, vignette, zoom, previewScale, previewWidth]);
 
   const downloadSingleImage = useCallback((img, index) => {
     const link = document.createElement('a');
@@ -132,6 +140,16 @@ function MemoryLabComponent(props) {
     setExportStatus(`Photo ${index + 1} downloaded.`);
   }, []);
 
+  const closeResult = useCallback(() => {
+    setResultImage?.((prev) => {
+      if (typeof prev === 'string' && prev.startsWith('blob:')) {
+        try { URL.revokeObjectURL(prev); } catch { /* noop */ }
+        blobUrlsRef.current = blobUrlsRef.current.filter((u) => u !== prev);
+      }
+      return null;
+    });
+  }, [setResultImage]);
+
   /* ── exportOnly mode: only render export buttons + overlays ── */
   if (exportOnly) {
     const photoCount = Array.isArray(photos) ? photos.length : 0;
@@ -140,8 +158,8 @@ function MemoryLabComponent(props) {
     return (
       <>
         <div className="export-grid">
-          <button type="button" onClick={() => exportCanvas('png')} disabled={!hasPhotos} title={hasPhotos ? 'Download your photos' : 'Capture photos first'}><ImageIcon size={18} /> Photo Strip <span>PNG</span><Download size={16} /></button>
-          <button type="button" onClick={() => exportCanvas('jpg')} disabled={!hasPhotos} title={hasPhotos ? 'Download your photos' : 'Capture photos first'}><Grid2X2 size={18} /> Collage <span>JPG</span><Download size={16} /></button>
+          <button type="button" onClick={() => exportCanvas('png')} disabled={!hasPhotos} title={hasPhotos ? 'Download full strip as PNG (best quality)' : 'Capture photos first'}><ImageIcon size={18} /> Download <span>PNG · best</span><Download size={16} /></button>
+          <button type="button" onClick={() => exportCanvas('jpg')} disabled={!hasPhotos} title={hasPhotos ? 'Download full strip as JPG (smaller file)' : 'Capture photos first'}><Grid2X2 size={18} /> Download <span>JPG · small</span><Download size={16} /></button>
         </div>
         {!hasPhotos && <p className="export-status" role="status">Capture photos first — we never export sample photos.</p>}
         {incomplete && <p className="export-status" role="status">Incomplete strip ({photoCount}/{mode}) — download includes only your photos.</p>}
@@ -252,8 +270,8 @@ function MemoryLabComponent(props) {
           <div className="paper-note">All set! <Sparkles size={16} /></div>
           <p>Export your memory</p>
           <div className="export-grid">
-            <button type="button" onClick={() => exportCanvas('png')}><ImageIcon size={18} /> Photo Strip <span>PNG</span><Download size={16} /></button>
-            <button type="button" onClick={() => exportCanvas('jpg')}><Grid2X2 size={18} /> Collage <span>JPG</span><Download size={16} /></button>
+            <button type="button" onClick={() => exportCanvas('png')} disabled={!Array.isArray(photos) || photos.length === 0}><ImageIcon size={18} /> Download <span>PNG · best</span><Download size={16} /></button>
+            <button type="button" onClick={() => exportCanvas('jpg')} disabled={!Array.isArray(photos) || photos.length === 0}><Grid2X2 size={18} /> Download <span>JPG · small</span><Download size={16} /></button>
           </div>
           {exportStatus && <p className="export-status" role="status" aria-live="polite">{exportStatus}</p>}
           <AnimatePresence>
