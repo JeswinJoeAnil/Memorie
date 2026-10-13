@@ -16,6 +16,9 @@ import {
 } from 'lucide-react';
 import { StudioCompositor } from '../../studio/compositor/StudioCompositor.js';
 import { segmentationManager } from '../../studio/segmentation/segmentationManager.js';
+import { invalidateBackgroundCache } from '../../studio/compositor/backgroundRenderer.js';
+import { getTierConfig } from '../../studio/performance/deviceTier.js';
+import { PerfMonitor } from '../../studio/performance/perfMonitor.js';
 import { STUDIO_BACKGROUNDS } from '../../constants/studioAssets.js';
 import { activeMembers, sortMembersByJoinOrder } from '../../studio/room/roomState.js';
 import { constrainParticipantPosition } from '../../studio/compositor/participantLayout.js';
@@ -59,10 +62,12 @@ function StudioRoomComponent({
   const [showBgPicker, setShowBgPicker] = useState(false);
   const [showQualityControls, setShowQualityControls] = useState(false);
   const [showDebug, setShowDebug] = useState(SHOW_DEBUG);
-  const [selectedResolution, setSelectedResolution] = useState('1080p');
+  const [selectedResolution, setSelectedResolution] = useState('720p');
   const [shooting, setShooting] = useState(false);
   const [shotIndex, setShotIndex] = useState(null);
   const [streamTick, setStreamTick] = useState(0);
+  const [perfTier, setPerfTier] = useState(() => segmentationManager.getTier());
+  const [perfSnap, setPerfSnap] = useState({ fps: 60, avgSegMs: 0, avgRenderMs: 0 });
 
   const compositorCanvasRef = useRef(null);
   const compositorEngineRef = useRef(null);
@@ -122,14 +127,32 @@ function StudioRoomComponent({
     };
   }, []);
 
+  // Re-attach tick only when a video actually starts playing; slow poll as fallback.
+  // Previously re-rendered every 2s even when idle — wasted React work per frame window.
   useEffect(() => {
-    const id = setInterval(() => setStreamTick((t) => t + 1), 2000);
+    const id = setInterval(() => setStreamTick((t) => t + 1), 5000);
     return () => clearInterval(id);
   }, []);
+
+  // Adaptive tier → compositor size + quality flags. Runs once + on auto-degrade.
+  useEffect(() => {
+    const cfg = getTierConfig(perfTier);
+    segmentationManager.setTier(perfTier);
+    const engine = compositorEngineRef.current;
+    if (engine) {
+      engine.setCompositeSize(cfg.compositeWidth, cfg.compositeHeight);
+      engine.setQualityFlags({ enableGlow: cfg.enableGlow, enableShadows: cfg.enableShadows });
+    }
+    invalidateBackgroundCache();
+  }, [perfTier]);
 
   useEffect(() => {
     if (!compositorEngineRef.current) {
       compositorEngineRef.current = new StudioCompositor(compositorCanvasRef.current);
+      const cfg = getTierConfig(segmentationManager.getTier());
+      compositorEngineRef.current.setCompositeSize(cfg.compositeWidth, cfg.compositeHeight);
+      compositorEngineRef.current.setQualityFlags({ enableGlow: cfg.enableGlow, enableShadows: cfg.enableShadows });
+      setPerfTier(segmentationManager.getTier());
     } else {
       compositorEngineRef.current.setCanvas(compositorCanvasRef.current);
     }
@@ -137,19 +160,40 @@ function StudioRoomComponent({
 
   // Single requestAnimationFrame loop for the studio scene
   // Pauses when the tab is hidden to prevent wasted CPU/GPU cycles.
+  // Includes perf monitor + sustained-low-fps auto-degrade (high → balanced → performance).
   useEffect(() => {
     const activeBg = customBgUrl
       ? { solidColor: '#000', customImageUrl: customBgUrl }
       : background;
 
     let isVisible = !document.hidden;
+    const monitor = new PerfMonitor({
+      onDegrade: () => {
+        setPerfTier((prev) => {
+          const next = prev === 'high' ? 'balanced' : prev === 'balanced' ? 'performance' : prev;
+          return next;
+        });
+      },
+    });
+    let snapTimer = 0;
 
     const renderLoop = () => {
       if (compositorEngineRef.current && isVisible) {
+        const t0 = performance.now();
+        monitor.beginFrame(t0);
         compositorEngineRef.current.renderFrame({
           background: activeBg,
           sceneParticipants: sceneParticipantsRef.current,
         });
+        const t1 = performance.now();
+        monitor.endFrame(t1, t0);
+        // Refresh debug HUD ~2x/sec without re-rendering every frame
+        if (t1 - snapTimer > 500) {
+          snapTimer = t1;
+          const seg = segmentationManager.getStats();
+          const m = monitor.snapshot();
+          setPerfSnap({ ...m, avgSegMs: seg.avgSegMs, backend: seg.backend });
+        }
       }
       animFrameRef.current = requestAnimationFrame(renderLoop);
     };
@@ -188,6 +232,16 @@ function StudioRoomComponent({
       el.srcObject = stream;
     }
     if (el.paused) el.play().catch(() => {});
+    // Decode-efficient hidden videos: low-res render, no audio
+    try {
+      el.preload = 'auto';
+      if ('disablePictureInPicture' in el) el.disablePictureInPicture = true;
+    } catch {}
+    // Bump scene tick exactly when pixels arrive instead of polling
+    if (!el._studioTickHooked) {
+      el._studioTickHooked = true;
+      el.addEventListener('playing', () => setStreamTick((t) => t + 1), { once: false });
+    }
 
     sceneParticipantsRef.current = sceneParticipantsRef.current.map((p) =>
       p.peerId === peerId ? { ...p, video: el } : p
@@ -542,6 +596,8 @@ function StudioRoomComponent({
           <div>PEERS: {connectedPeers}/{expectedRemotes}</div>
           <div>STREAMS: {streamCount}/{sortedMembers.length}</div>
           <div>SEGMENTED: {segReadyCount}/{sortedMembers.length}</div>
+          <div>TIER: {perfTier} ({perfSnap.backend || segmentationManager.backend})</div>
+          <div>FPS: {perfSnap.fps} | SEG: {perfSnap.avgSegMs}ms | RND: {perfSnap.avgRenderMs}ms</div>
           <div>STATE: v{roomState?.version ?? 0}</div>
         </div>
       )}
@@ -783,6 +839,29 @@ function StudioRoomComponent({
                     <span className="studio-res-desc">{opt.desc}</span>
                   </div>
                   {selectedResolution === opt.id && <Check size={16} className="studio-res-check" />}
+                </button>
+              ))}
+            </div>
+            <div className="studio-picker-header" style={{ marginTop: 12 }}>
+              <span className="studio-bg-picker-label">Studio Performance (auto: {perfTier})</span>
+            </div>
+            <div className="studio-resolution-list">
+              {[
+                { id: 'high', label: 'High', desc: '1280×720 preview · full glow + shadows' },
+                { id: 'balanced', label: 'Balanced', desc: '960×540 preview · reduced AI rate' },
+                { id: 'performance', label: 'Speed', desc: '854×480 preview · fastest, photo stays HD' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`studio-resolution-item ${perfTier === opt.id ? 'active' : ''}`}
+                  onClick={() => setPerfTier(opt.id)}
+                >
+                  <div className="studio-res-info">
+                    <span className="studio-res-title">{opt.label}</span>
+                    <span className="studio-res-desc">{opt.desc}</span>
+                  </div>
+                  {perfTier === opt.id && <Check size={16} className="studio-res-check" />}
                 </button>
               ))}
             </div>
