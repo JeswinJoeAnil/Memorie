@@ -109,15 +109,16 @@ function CameraBoothComponent({
     const canvas = canvasRef.current;
     const video = videoRef.current;
 
-    if (currentCaptured.length === 0) {
-      updateTimestamp();
+    /* Never invent a photo — if camera isn't ready, return unchanged */
+    if (!canvas || !video || !streaming) {
+      return [...currentCaptured];
+    }
+    if (video.readyState < 2 || (video.videoWidth || 0) === 0) {
+      return [...currentCaptured];
     }
 
-    if (!canvas || !video || !streaming) {
-      const fallback = assetPhotos[currentCaptured.length % assetPhotos.length];
-      fireFlash();
-      if (onCapture) onCapture();
-      return [...currentCaptured, fallback];
+    if (currentCaptured.length === 0) {
+      updateTimestamp();
     }
 
     const dataUrl = await encodeVideoFrameToStrip(canvas, video, mirrorOn, activeFilter.css);
@@ -216,6 +217,13 @@ function CameraBoothComponent({
 
     const prev = capturedRef.current;
     const next = await captureOnePhoto(prev);
+    if (next.length === prev.length) {
+      setStatusMessage("Couldn't capture — camera not ready. Allow access or use Import.");
+      setShotIndex(null);
+      setShooting(false);
+      shootingRef.current = false;
+      return;
+    }
     setCaptured(next);
     setStatusMessage(`Captured photo ${Math.min(next.length, mode)} of ${mode}.`);
 
@@ -258,7 +266,12 @@ function CameraBoothComponent({
         }
       }
       setCountdown(null);
+      const before = currentPhotos.length;
       currentPhotos = await captureOnePhoto(currentPhotos);
+      if (currentPhotos.length === before) {
+        setStatusMessage("Stopped — camera not ready. Allow access or use Import.");
+        break;
+      }
       setCaptured([...currentPhotos]);
       setStatusMessage(`Captured photo ${i + 1} of ${totalShots}.`);
       if (i < totalShots - 1) {
