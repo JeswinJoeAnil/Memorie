@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { burstConfirmMessage, fullStripMessage, isStripFull, needsBurstConfirm } from './captureGuards.js';
+import { burstConfirmMessage, fullStripMessage, isStreamAlive, isStripFull, needsBurstConfirm } from './captureGuards.js';
 
 describe('capture guards (P0.2)', () => {
   it('detects full strip', () => {
@@ -17,5 +17,13 @@ describe('capture guards (P0.2)', () => {
   it('messages mention counts', () => {
     expect(burstConfirmMessage(2, 4)).toContain('2');
     expect(fullStripMessage(4)).toContain('4');
+  });
+
+  it('detects dead streams', () => {
+    expect(isStreamAlive(null)).toBe(false);
+    expect(isStreamAlive({})).toBe(false);
+    expect(isStreamAlive({ getVideoTracks: () => [] })).toBe(false);
+    expect(isStreamAlive({ getVideoTracks: () => [{ readyState: 'ended' }] })).toBe(false);
+    expect(isStreamAlive({ getVideoTracks: () => [{ readyState: 'live' }] })).toBe(true);
   });
 });

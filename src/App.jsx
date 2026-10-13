@@ -103,6 +103,26 @@ export default function App() {
       });
   }, [cameraRequested]);
 
+  /* Stream died (device unplugged / tracks ended) — allow retry */
+  const handleCameraExpired = useCallback(() => {
+    setCameraStream((prev) => {
+      try { prev?.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
+      return null;
+    });
+    setCameraRequested(false);
+    setCameraError('Camera disconnected. Please allow access again.');
+  }, []);
+
+  /* Stop camera on full app unmount only — never on booth page switch */
+  useEffect(() => {
+    return () => {
+      setCameraStream((prev) => {
+        try { prev?.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
+        return prev;
+      });
+    };
+  }, []);
+
   useEffect(() => {
     PRELOAD_IMAGE_URLS.forEach((url) => {
       const img = new Image();
@@ -360,6 +380,7 @@ export default function App() {
                 onCapture={playShutter}
                 cameraStream={cameraStream}
                 onRequestCamera={requestCamera}
+                onCameraExpired={handleCameraExpired}
                 cameraError={cameraError}
               />
               <CameraEditor

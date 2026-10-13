@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { assetPhotos } from '../constants/assets.js';
 import { encodeVideoFrameToStrip } from '../utils/capture.js';
-import { burstConfirmMessage, fullStripMessage, isStripFull, needsBurstConfirm } from '../utils/captureGuards.js';
+import { burstConfirmMessage, fullStripMessage, isStreamAlive, isStripFull, needsBurstConfirm } from '../utils/captureGuards.js';
 import { getFormattedTimestamp } from '../utils/timestamp.js';
 import { CameraOverlay } from './CameraOverlay.jsx';
 
@@ -38,6 +38,7 @@ function CameraBoothComponent({
   onCapture,
   cameraStream,
   onRequestCamera,
+  onCameraExpired,
   cameraError,
 }) {
   const videoRef = useRef(null);
@@ -66,43 +67,37 @@ function CameraBoothComponent({
     }
   }, [isOpen, cameraStream, streaming, onRequestCamera]);
 
-  /* Use the pre-acquired camera stream from App */
+  /* Use the pre-acquired camera stream from App (borrowed, never stopped here) */
   useEffect(() => {
     if (!cameraStream) return;
-    if (videoRef.current && !streaming) {
+    if (!isStreamAlive(cameraStream)) {
+      setStreaming(false);
+      onCameraExpired?.();
+      return;
+    }
+    if (videoRef.current) {
       videoRef.current.srcObject = cameraStream;
       streamRef.current = cameraStream;
       setStreaming(true);
+      setError('');
       setStatusMessage('Camera ready.');
     }
-  }, [cameraStream, streaming]);
+  }, [cameraStream, onCameraExpired]);
 
-  /* Fallback: if no stream was passed and booth is opened, try requesting directly */
-  useEffect(() => {
-    if (cameraStream || !isOpen || streaming) return;
-    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user' }, audio: false })
-      .then((stream) => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          streamRef.current = stream;
-          setStreaming(true);
-          setStatusMessage('Camera ready.');
-        }
-      })
-      .catch(() => {
-        setError('Camera blocked. Preview is using the memory roll.');
-        setStatusMessage('Camera blocked. You can still import photos.');
-      });
-  }, [cameraStream, isOpen, streaming]);
-
+  /* Detach video on unmount only — App owns the stream so page switches keep it alive.
+     Only stop tracks that we own locally (fallback), never the borrowed App stream. */
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop());
-        streamRef.current = null;
+      try {
+        if (videoRef.current) videoRef.current.srcObject = null;
+      } catch { /* noop */ }
+      const owned = streamRef.current && streamRef.current !== cameraStream;
+      if (owned) {
+        try { owned.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
       }
+      streamRef.current = null;
     };
-  }, []);
+  }, [cameraStream]);
 
   const fireFlash = useCallback(() => {
     if (!flashOn) return;
