@@ -71,7 +71,10 @@ export function getTierConfig(tier) {
         segInputSize: 144,
         segFps: 6,
         temporalAlpha: 0.55,
-        maskThresholdLow: 0.38,
+        // Phone-first: same cut level as other tiers so shoulders/hair are
+        // not eaten on mobile. Speed comes from smaller input + lower fps,
+        // never from a harsher threshold.
+        maskThresholdLow: 0.35,
         maskThresholdHigh: 0.72,
         enableShadows: false,
         enableGlow: false,

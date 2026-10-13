@@ -18,7 +18,9 @@ import { FilesetResolver, ImageSegmenter } from '@mediapipe/tasks-vision';
 import {
   buildSmoothMaskImageData,
   cropPersonCutout,
+  expandVideoBoundsForPhone,
   extractPersonBoundingBox,
+  mapCoverFitBoundsToVideo,
 } from './maskProcessor.js';
 import {
   detectDeviceTier,
@@ -27,7 +29,7 @@ import {
 } from '../performance/deviceTier.js';
 
 const DEFAULT_BOUNDS = Object.freeze({
-  normX: 0.15, normY: 0.05, normWidth: 0.7, normHeight: 0.9, detected: false,
+  normX: 0.05, normY: 0.0, normWidth: 0.9, normHeight: 1.0, detected: false,
 });
 
 class SegmentationManager {
@@ -190,6 +192,9 @@ class SegmentationManager {
         maskImageData: null,
         prevBounds: null,
         smoothedBounds: { ...DEFAULT_BOUNDS },
+        // Seg-space (square AI input) smoothed box for stable tracking +
+        // mask sampling. smoothedBounds is the mapped video-space box.
+        segBounds: null,
         prevMaskData: null,
         lastTimestampMs: 0,
         lastSegmentTime: 0,
@@ -274,6 +279,8 @@ class SegmentationManager {
 
     // Cheap per-frame step: re-cut from cached mask + interpolated bounds.
     // Uses low smoothing in preview; captureHD uses high via processHighQuality.
+    // Video crop uses the mapped video-space box; mask crop uses the seg-space
+    // box — they are different spaces on portrait phones.
     let cutout = entry.cutoutCanvas;
     try {
       if (entry.hasMask || entry.smoothedBounds) {
@@ -283,7 +290,8 @@ class SegmentationManager {
             entry.maskCanvas,
             entry.smoothedBounds,
             entry.cutoutCanvas,
-            { smoothingQuality: this.config.smoothingQuality }
+            { smoothingQuality: this.config.smoothingQuality },
+            entry.segBounds || null
           ) || entry.cutoutCanvas;
       }
     } catch {
@@ -341,19 +349,28 @@ class SegmentationManager {
         );
         entry.maskCtx.putImageData(entry.maskImageData, 0, 0);
 
-        // Bbox scan on the (already small) mask; stride 2 on performance tier
-        const stride = this.tier === 'performance' ? 2 : 1;
-        // Use temporally smoothed mask for stable bounds
-        entry.smoothedBounds = extractPersonBoundingBox(
+        // Bbox scan is always exact (stride 1). Phone-first padding lives in
+        // the extractor (extra top headroom) + the video-space expansion below.
+        // Use temporally smoothed mask for stable bounds.
+        const segSmoothed = extractPersonBoundingBox(
           entry.prevMaskData,
           maskW,
           maskH,
           entry.prevBounds,
           this.config.maskThresholdLow,
-          0.08,
-          stride
+          0.1
         );
-        entry.prevBounds = entry.smoothedBounds;
+        entry.prevBounds = segSmoothed;
+        entry.segBounds = segSmoothed;
+
+        // Map square-AI box back to full-video coordinates (cover-fit inverse),
+        // then expand phone-first so close-up shoulders/hair always fit.
+        // Without this mapping, portrait phones got a squeezed box that cut
+        // shoulders with a straight edge.
+        const vW = videoElement.videoWidth || 0;
+        const vH = videoElement.videoHeight || 0;
+        const mapped = mapCoverFitBoundsToVideo(segSmoothed, vW, vH, this.config.segInputSize);
+        entry.smoothedBounds = expandVideoBoundsForPhone(mapped);
 
         entry.hasMask = true;
         entry.lastSegmentTime = now;
@@ -438,6 +455,14 @@ class SegmentationManager {
       for (const k of ['r1', 'r2', 'r3', 'r4']) {
         if (out[k]) entry[`_rvm_${k}`] = out[k];
       }
+      // RVM mask covers the square cover-fit input: keep boxes wide-open so
+      // the cutout never clips shoulders while bounds tracking catches up.
+      if (!entry.segBounds) {
+        entry.segBounds = { normX: 0.05, normY: 0.0, normWidth: 0.9, normHeight: 1.0, detected: true };
+      }
+      if (!entry.smoothedBounds?.detected) {
+        entry.smoothedBounds = { ...DEFAULT_BOUNDS, detected: true };
+      }
       entry.hasMask = true;
       entry.lastSegmentTime = now;
       entry.status = 'ready';
@@ -461,7 +486,8 @@ class SegmentationManager {
     try {
       const cut = cropPersonCutout(
         videoElement, entry.maskCanvas, entry.smoothedBounds, entry.cutoutCanvas,
-        { smoothingQuality: 'high' }
+        { smoothingQuality: 'high' },
+        entry.segBounds || null
       );
       if (cut) res.cutout = cut;
     } catch {}
