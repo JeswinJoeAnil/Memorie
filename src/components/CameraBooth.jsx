@@ -62,6 +62,8 @@ function CameraBoothComponent({
   const [shooting, setShooting] = useState(false);
   const shootingRef = useRef(false);
   const [flashFire, setFlashFire] = useState(false);
+  const [gifRecording, setGifRecording] = useState(false);
+  const [gifProgress, setGifProgress] = useState(0);
 
   const updateTimestamp = useCallback(() => {
     setTimestamp(getFormattedTimestamp());
@@ -117,15 +119,20 @@ function CameraBoothComponent({
       const GIF_FRAMES = 16;
       const FRAME_INTERVAL = 90; // ms between frames
       const frames = [];
+      setGifRecording(true);
+      setGifProgress(0);
       for (let i = 0; i < GIF_FRAMES; i++) {
         let dataUrl;
         try { dataUrl = await encodeVideoFrameToStrip(canvas, video, mirrorOn); }
         catch { break; }
         frames.push(dataUrl);
+        setGifProgress((i + 1) / GIF_FRAMES);
         if (i < GIF_FRAMES - 1) {
           await new Promise(r => setTimeout(r, FRAME_INTERVAL));
         }
       }
+      setGifRecording(false);
+      setGifProgress(0);
       if (frames.length === 0) return currentCaptured;
 
       // For boomerang, append reversed frames (excluding first and last to avoid stutter)
@@ -252,7 +259,10 @@ function CameraBoothComponent({
       return;
     }
     setCaptured(next);
-    setStatusMessage(`Captured photo ${Math.min(next.length, mode)} of ${mode}.`);
+    setStatusMessage(gifMode
+      ? `Recorded ${gifMode === 'boomerang' ? 'boomerang' : 'GIF'} clip ${Math.min(next.length, mode)} of ${mode}.`
+      : `Captured photo ${Math.min(next.length, mode)} of ${mode}.`
+    );
 
     setShotIndex(null);
     setShooting(false);
@@ -363,6 +373,32 @@ function CameraBoothComponent({
             <CameraOverlay timestamp={timestamp} />
             <AnimatePresence mode="wait">
               {countdown && <motion.div className="countdown" role="timer" aria-live="polite" aria-atomic="true" key={countdown} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.5, opacity: 0 }}>{countdown}</motion.div>}
+            </AnimatePresence>
+            <AnimatePresence>
+              {gifRecording && (
+                <motion.div
+                  className="gif-recording-overlay"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  key="gif-rec"
+                >
+                  <div className="gif-rec-badge">
+                    <span className="gif-rec-dot" />
+                    <span className="gif-rec-label">REC</span>
+                    <span className="gif-rec-mode">{gifMode === 'boomerang' ? 'BOOMERANG' : 'GIF'}</span>
+                  </div>
+                  <div className="gif-rec-progress-track">
+                    <motion.div
+                      className="gif-rec-progress-bar"
+                      initial={{ scaleX: 0 }}
+                      animate={{ scaleX: gifProgress }}
+                      transition={{ duration: 0.08, ease: 'linear' }}
+                    />
+                  </div>
+                  <div className="gif-rec-hint">Hold your pose!</div>
+                </motion.div>
+              )}
             </AnimatePresence>
             {(cameraError || error) && <div className="camera-error" role="alert">{cameraError || error}</div>}
           </div>
