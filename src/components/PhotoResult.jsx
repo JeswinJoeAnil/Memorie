@@ -1,3 +1,5 @@
+import { TemplateSlot } from './TemplateSlot.jsx';
+import { GradedPhoto } from './GradedPhoto.jsx';
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { asset } from '../constants/assets.js';
 import { DraggableDeco } from './DraggableDeco.jsx';
@@ -25,8 +27,6 @@ function PhotoResultComponent({
   photoScales,
   setPhotoScales,
   stripBackground,
-  setPreviewScale,
-  setPreviewWidth,
   stripElementRef,
 }) {
   const wrapperRef = useRef(null);
@@ -40,22 +40,18 @@ function PhotoResultComponent({
   useEffect(() => {
     if (!wrapperRef.current || !stripRef.current) return;
     const compute = () => {
-      const wW = wrapperRef.current.clientWidth > 0 ? wrapperRef.current.clientWidth - 32 : 340;
+      if (!wrapperRef.current || !stripRef.current) return;
+      const wW = wrapperRef.current.clientWidth - 32;
       const rawH = wrapperRef.current.clientHeight;
       const wH = (rawH > 100 ? rawH : 550) - 32;
       const sW = stripRef.current.offsetWidth || 380;
       const sH = stripRef.current.offsetHeight || 800;
       if (!sW || !sH || wW <= 0) return;
       const s = Math.min(wW / sW, wH / sH, 1);
-      const safeScale = Math.max(s, 0.42);
-      setScale(safeScale);
-      setMarginBottomVal(safeScale < 1 ? -(stripRef.current.offsetHeight * (1 - safeScale)) : 0);
+      setScale(s);
+      setMarginBottomVal(s < 1 ? -(stripRef.current.offsetHeight * (1 - s)) : 0);
 
       setPreviewW(sW);
-
-      /* Report actual preview dimensions + scale to parent for export */
-      if (setPreviewScale) setPreviewScale(safeScale);
-      if (setPreviewWidth) setPreviewWidth(sW);
     };
     compute();
     const ro = new ResizeObserver(compute);
@@ -66,10 +62,6 @@ function PhotoResultComponent({
 
   const onStripBackdropClick = useCallback((e) => {
     if (e.target === e.currentTarget) setActiveDecoId(null);
-  }, [setActiveDecoId]);
-
-  const onPhotoSlotsClick = useCallback(() => {
-    setActiveDecoId(null);
   }, [setActiveDecoId]);
 
   const makeDecoActivate = useCallback((id) => () => setActiveDecoId(id), [setActiveDecoId]);
@@ -93,13 +85,13 @@ function PhotoResultComponent({
         <div
           ref={setStripNode}
           className="photo-result photo-result-custom"
-          role="img"
+          role="group"
           aria-label={`Photo strip preview using the ${frame.name} custom template with ${photos.length} photos`}
           style={{
             '--accent': accent,
             width: `${stripWidth}px`,
             height: `${stripHeight}px`,
-            transform: `scale(${scale}) rotate(-1.5deg)`,
+            transform: `scale(${scale})`,
             transformOrigin: 'top center',
             marginBottom: `${marginBottomVal}px`,
             position: 'relative',
@@ -112,37 +104,21 @@ function PhotoResultComponent({
             const photo = photos[index];
             if (!photo) return null;
             const pScale = photoScales?.[index] || { x: 1, y: 1 };
-            const tilt = slot.rot !== undefined ? slot.rot : (frame.tilt || 0);
             return (
-              <div
-                key={`custom-slot-${index}`}
-                className="custom-template-slot"
-                style={{
-                  position: 'absolute',
-                  left: `${slot.x * 100}%`,
-                  top: `${slot.y * 100}%`,
-                  width: `${slot.w * 100}%`,
-                  height: `${slot.h * 100}%`,
-                  overflow: 'hidden',
-                  borderRadius: slot.borderRadius || (frame.id === 'custom-capturing-moments' ? '50%' : '14px'),
-                  transform: tilt ? `rotate(${tilt}deg)` : undefined,
-                  transformOrigin: 'center center',
-                }}
-              >
-                <img
+              <TemplateSlot key={index} slot={slot}>
+                <GradedPhoto filter={filter} index={index}
                   src={photo}
-                  alt=""
-                  aria-hidden="true"
+                  alt={`Photo ${index + 1} in the strip`}
+                  tabIndex={0}
                   style={{
                     width: '100%',
                     height: '100%',
                     objectFit: fitSettings?.[index] === 'contain' ? 'contain' : 'cover',
-                    filter: filter.css || 'none',
-                    transform: `scale(${pScale.x * zoom}, ${pScale.y * zoom}) rotate(${rotation}deg)`,
+                    transform: `scale(${(pScale.x ?? 1) * zoom}, ${(pScale.y ?? 1) * zoom}) rotate(${rotation}deg)`,
                     transformOrigin: 'center center',
                   }}
                 />
-              </div>
+              </TemplateSlot>
             );
           })}
 
@@ -180,7 +156,7 @@ function PhotoResultComponent({
       <div
         ref={setStripNode}
         className={`photo-result frame-${frame.id}`}
-        role="img"
+        role="group"
         aria-label={`Photo strip preview using the ${frame.name} template with ${photos.length} photos`}
         style={{
           '--accent': accent,
@@ -188,7 +164,7 @@ function PhotoResultComponent({
           background: stripBackground?.type === 'gradient'
             ? `linear-gradient(180deg, ${stripBackground.from}, ${stripBackground.to})`
             : (stripBackground?.value || ''),
-          transform: `scale(${scale}) rotate(-1.5deg)`,
+          transform: `scale(${scale})`,
           transformOrigin: 'top center',
           marginBottom: `${marginBottomVal}px`,
         }}
@@ -200,6 +176,7 @@ function PhotoResultComponent({
             No photos yet — your captures will appear here. Sample images are never added to your strip.
           </div>
         )}
+        <div className="photo-slots">
         {(photos || []).map((photo, index) => (
           <DraggablePhoto
             key={`photo-${index}`}
@@ -210,11 +187,12 @@ function PhotoResultComponent({
             rotation={rotation}
             fitMode={fitSettings?.[index]}
             scale={photoScales?.[index] || { x: 1, y: 1 }}
-            onScale={(newScale) => setPhotoScales?.(prev => ({ ...prev, [index]: newScale }))}
+            onScale={(newScale) => setPhotoScales?.(prev => ({ ...prev, [index]: { ...prev[index], ...newScale } }))}
             isActive={activeDecoId === `photo-${index}`}
             onPointerDown={() => setActiveDecoId?.(`photo-${index}`)}
           />
         ))}
+        </div>
 
         <DoodleCanvas stripTab={stripTab} doodlePaths={doodlePaths} setDoodlePaths={setDoodlePaths} doodleBrush={doodleBrush} previewWidth={previewW} />
 

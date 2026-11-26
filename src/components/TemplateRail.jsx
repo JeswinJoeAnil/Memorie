@@ -1,3 +1,5 @@
+import { TemplateSlot } from './TemplateSlot.jsx';
+import { GradedPhoto } from './GradedPhoto.jsx';
 import React, { memo, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles } from 'lucide-react';
@@ -7,7 +9,7 @@ const MiniTemplate = memo(function MiniTemplateComponent({ frame, photos, filter
   return (
     <div className={`mini-template frame-${frame.id}`} style={{ '--accent': accent }}>
       {photos.slice(0, frame.id === 'magazine' ? 3 : 4).map((photo, index) => (
-        <img key={index} src={photo} style={{ filter: filter.css }} alt="" aria-hidden="true" />
+        <GradedPhoto filter={filter} key={index} src={photo} alt="" aria-hidden="true" />
       ))}
       <span>{frame.name}</span>
     </div>
@@ -24,52 +26,26 @@ const CustomMiniTemplate = memo(function CustomMiniTemplateComponent({ template,
     <div className="mini-template mini-template-custom" style={{ '--accent': accent }}>
       <div
         className="custom-mini-strip-frame"
-        style={{
-          height: '100%',
-          aspectRatio: template.aspectRatio ? `${template.aspectRatio}` : 'auto',
-          position: 'relative',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: '7px',
-          overflow: 'hidden',
-        }}
+        style={{ '--template-ratio': template.aspectRatio }}
       >
         {/* Photo slots behind the PNG overlay */}
         {slots.map((slot, index) => {
           const photo = photos?.[index] || assetPhotos[index % assetPhotos.length];
-          const tilt = slot.rot !== undefined ? slot.rot : (template.tilt || 0);
           return (
-            <div
-              key={index}
-              className="mini-custom-slot"
-              style={{
-                position: 'absolute',
-                left: `${slot.x * 100}%`,
-                top: `${slot.y * 100}%`,
-                width: `${slot.w * 100}%`,
-                height: `${slot.h * 100}%`,
-                borderRadius: template.id === 'custom-capturing-moments' ? '50%' : '3px',
-                transform: tilt ? `rotate(${tilt}deg)` : undefined,
-                transformOrigin: 'center center',
-                overflow: 'hidden',
-                zIndex: 1,
-              }}
-            >
+            <TemplateSlot key={index} slot={slot}>
               {photo && (
-                <img
+                <GradedPhoto filter={filter}
                   src={photo}
                   alt=""
                   style={{
                     width: '100%',
                     height: '100%',
                     objectFit: 'cover',
-                    filter: filter?.css || 'none',
                     display: 'block',
                   }}
                 />
               )}
-            </div>
+            </TemplateSlot>
           );
         })}
 
@@ -83,7 +59,7 @@ const CustomMiniTemplate = memo(function CustomMiniTemplateComponent({ template,
         />
       </div>
 
-      <span>{template.name}</span>
+
     </div>
   );
 });
@@ -133,12 +109,12 @@ function TemplateRailComponent({ frame, setFrame, photos, filter, accent, compac
                 whileTap={{ scale: 0.98 }}
               >
                 <CustomMiniTemplate template={template} photos={photos} filter={filter} accent={accent} />
-                <span>{template.name}</span>
+
               </motion.button>
             ))}
           </>
         ) : (
-          mode && <p role="note" style={{ fontSize: 12, color: '#655d56', padding: '8px 4px' }}>Custom 3-photo templates need 3 shots — switch strip length to 3 to use them.</p>
+          mode && <p role="note" style={{ fontSize: 12, color: '#655d56', padding: '8px 4px' }}>No custom templates for {mode}-photo strips — switch strip length to see more options.</p>
         )}
       </div>
     </section>

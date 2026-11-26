@@ -1,36 +1,29 @@
-// ── Eager: photos + filters (hero-critical, always visible) ──
-const eagerModules = import.meta.glob(
-  ['../../assets/photos/**/*.{png,jpg,jpeg,webp,svg}', '../../assets/filters/**/*.{png,jpg,jpeg,webp,svg}'],
-  { eager: true, import: 'default' },
-);
-
-// Eagerly import custom template overlays so they resolve synchronously (avoid lazy placeholder 404)
+// Vite resolves the URL table at build time. The browser fetches each file when used.
+const modules = import.meta.glob('../../assets/{photos,filters,stickers,misc,audio}/**/*.{png,jpg,jpeg,webp,svg,mp3,wav,ogg}', {
+  eager: true, import: 'default', query: '?url&no-inline',
+});
 import capturingMomentsOverlay from '../../assets/templates/capturing-moments.png';
 import template2Overlay from '../../assets/templates/2.png';
 
-// ── Lazy: stickers, templates, misc (~35MB total) — only loaded on demand ──
-const lazyModules = import.meta.glob(
-  ['../../assets/stickers/**/*.{png,jpg,jpeg,webp,svg}', '../../assets/templates/**/*.{png,jpg,jpeg,webp,svg}', '../../assets/misc/**/*.{png,jpg,jpeg,webp,svg}'],
-  { eager: false, import: 'default' },
-);
-
-// ── Audio: eager URL resolution (files are small refs; actual download is gated by preload="none") ──
-const audioModules = import.meta.glob(
-  '../../assets/audio/**/*.{mp3,wav,ogg}',
-  { eager: true, import: 'default' },
-);
+// ── New template overlays ──
+import ribbonOverlay from '../../assets/templates/1-photo-ribbon.png';
+import cherryVinylOverlay from '../../assets/templates/2-photo-cherry-vinyl.png';
+import feedbackOverlay from '../../assets/templates/2-photo-feedback.png';
+import outOfOrbitOverlay from '../../assets/templates/2-photo-out-of-orbit.png';
+import memorieOverlay from '../../assets/templates/phtotostrip 2.png';
+import ginghamWaveOverlay from '../../assets/templates/3-photo-gingham-wave.png';
+import onRepeatOverlay from '../../assets/templates/3-photo-on-repeat.png';
+import flashbackOverlay from '../../assets/templates/4-photo-flashback.png';
+import gardenBandOverlay from '../../assets/templates/4-photo-garden-band.png';
+import prismOverlay from '../../assets/templates/4-photo-prism.png';
+import indigoBelFourOverlay from '../../assets/templates/indigo-bel-four.png';
 
 const assetMap = new Map();
-const lazyLoaders = new Map();
-
-// Register eager assets
-for (const [rawPath, url] of Object.entries({ ...eagerModules, ...audioModules })) {
-  const cleanPath = rawPath.replace(/^(\.\.\/)+assets\//, '');
-  assetMap.set(cleanPath, url);
-  const basename = cleanPath.split('/').pop();
-  if (!assetMap.has(basename)) {
-    assetMap.set(basename, url);
-  }
+for (const [path, url] of Object.entries(modules)) {
+  const name = path.slice('../../assets/'.length);
+  assetMap.set(name, url);
+  const basename = name.split('/').pop();
+  if (!assetMap.has(basename)) assetMap.set(basename, url);
 }
 
 // Register custom template overlays eagerly (so asset() returns hashed URL synchronously)
@@ -46,79 +39,47 @@ assetMap.set('template with 3 image slots.png', capturingMomentsOverlay);
 assetMap.set('templates/2nd temp with 3 img slots.png', template2Overlay);
 assetMap.set('2nd temp with 3 img slots.png', template2Overlay);
 
-// Register lazy sticker loaders
-for (const [rawPath, loader] of Object.entries(lazyModules)) {
-  const cleanPath = rawPath.replace(/^(\.\.\/)+assets\//, '');
-  lazyLoaders.set(cleanPath, loader);
-  const basename = cleanPath.split('/').pop();
-  if (!lazyLoaders.has(basename)) {
-    lazyLoaders.set(basename, loader);
-  }
+// ── Register new template overlays ──
+assetMap.set('templates/1-photo-ribbon.png', ribbonOverlay);
+assetMap.set('1-photo-ribbon.png', ribbonOverlay);
+assetMap.set('templates/2-photo-cherry-vinyl.png', cherryVinylOverlay);
+assetMap.set('2-photo-cherry-vinyl.png', cherryVinylOverlay);
+assetMap.set('templates/2-photo-feedback.png', feedbackOverlay);
+assetMap.set('2-photo-feedback.png', feedbackOverlay);
+assetMap.set('templates/2-photo-out-of-orbit.png', outOfOrbitOverlay);
+assetMap.set('2-photo-out-of-orbit.png', outOfOrbitOverlay);
+assetMap.set('templates/phtotostrip 2.png', memorieOverlay);
+assetMap.set('phtotostrip 2.png', memorieOverlay);
+assetMap.set('templates/3-photo-gingham-wave.png', ginghamWaveOverlay);
+assetMap.set('3-photo-gingham-wave.png', ginghamWaveOverlay);
+assetMap.set('templates/3-photo-on-repeat.png', onRepeatOverlay);
+assetMap.set('3-photo-on-repeat.png', onRepeatOverlay);
+assetMap.set('templates/4-photo-flashback.png', flashbackOverlay);
+assetMap.set('4-photo-flashback.png', flashbackOverlay);
+assetMap.set('templates/4-photo-garden-band.png', gardenBandOverlay);
+assetMap.set('4-photo-garden-band.png', gardenBandOverlay);
+assetMap.set('templates/4-photo-prism.png', prismOverlay);
+assetMap.set('4-photo-prism.png', prismOverlay);
+assetMap.set('templates/indigo-bel-four.png', indigoBelFourOverlay);
+assetMap.set('indigo-bel-four.png', indigoBelFourOverlay);
+
+export function asset(name) {
+  if (!name) return '';
+  return assetMap.get(name) || assetMap.get(name.split('/').pop()) || '';
 }
 
-/**
- * Resolve a lazy sticker asset. Returns a promise that resolves to the URL.
- * Caches the result so subsequent calls return the already-resolved URL.
- */
-export const loadAsset = async (name) => resolveAssetAsync(name);
-
-export const resolveAssetAsync = async (name) => {
-  if (!name) return '';
-  if (assetMap.has(name)) return assetMap.get(name);
-  const normalized = name.replace(/^(\.\.\/)+assets\//, '');
-  if (assetMap.has(normalized)) return assetMap.get(normalized);
-  const base = name.split('/').pop();
-  if (assetMap.has(base)) return assetMap.get(base);
-  const loader = lazyLoaders.get(name) || lazyLoaders.get(normalized) || lazyLoaders.get(base);
-  if (!loader) return '';
-  const url = await loader();
-  assetMap.set(name, url);
-  if (normalized !== name) assetMap.set(normalized, url);
-  if (base !== name && base !== normalized) assetMap.set(base, url);
-  return url;
-};
-
-export const asset = (name) => {
-  if (!name) return '';
-  if (assetMap.has(name)) return assetMap.get(name);
-  const normalized = name.replace(/^(\.\.\/)+assets\//, '');
-  if (assetMap.has(normalized)) return assetMap.get(normalized);
-  const base = name.split('/').pop();
-  if (assetMap.has(base)) return assetMap.get(base);
-
-  // Check lazy sticker loaders — resolve and cache on first hit
-  const loader = lazyLoaders.get(name) || lazyLoaders.get(normalized) || lazyLoaders.get(base);
-  if (loader) {
-    // Start loading in background and cache when done
-    loader().then((url) => {
-      assetMap.set(name, url);
-      if (normalized !== name) assetMap.set(normalized, url);
-      if (base !== name && base !== normalized) assetMap.set(base, url);
-    });
-    // Dev server can serve raw files; prod hashes break this placeholder, so
-    // return '' in prod and let callers resolve async via resolveAssetAsync().
-    if (import.meta.env?.DEV) {
-      const placeholderPath = normalized.includes('/') ? normalized : `stickers/${base}`;
-      return new URL(`../../assets/${placeholderPath}`, import.meta.url).href;
-    }
-    return '';
-  }
-
-  if (import.meta.env?.DEV) {
-    return new URL(`../../assets/${name}`, import.meta.url).href;
-  }
-  return '';
-};
+export const resolveAssetAsync = async name => asset(name);
+export const loadAsset = resolveAssetAsync;
 
 export const ASSETS = {
-  scrapbook: asset('photos/XLuTGjgtwjWtugfWBkwiLVHNF71_iX5xma4L6mxdq-VImioPV2fqq4TAkvueyEqg1IiNDI35_HvKV8KjpR__xK8UhB74W3ut-1GHsNKK_jjzet8cIi0KKKpYMK6JwdUllaTIG5MwrWg6y-XIFC-9moOd-NQkY-OGnp_zsu63kdSsIdoJ7u7KZ_dzygamVTPX.jpg'),
-  collage: asset('photos/1FDV7eh_AR8YMK0FX-wk3cZewoeM_NZTtyX5a6Fu90SGrBSujtYzJtiOF5tJlZa7Ag6RJX8RVqJzMuBST-25aAliIT_40cFFlN9uFVp_F1chjnlFseI2SbuUyO6zbdwCObOqTPZsctXxjejoiXh6QTXTSAuR3KLhXb-m5CUxzzri1Jwj6D4VkIS3a1onqHp3.jpg'),
-  cameraWide: asset('photos/54f49c9c7633a07bbc183dc5d7ab7d12.jpg'),
-  cameraPoster: asset('photos/5d0962c9a39f4963242a24778a4b332c.jpg'),
-  cameraTop: asset('photos/OIP.jpg'),
-  y2kGreen: asset('photos/Pecn3dmLyNRtp0rgwH9MRdIph5qeSW5-djVPZtQkxI4cso7bVMImh0gggyyT4MkZwGskMCCUsIWDKsR7AHQT25Kc9OBiHBhWV_XuwJJZIKRUijSXejM30HY9Az5tpp6xiNf5KcHTRunrB_CILdS_yLJRp-p8kZNINCwEiHlDLRp4A8WxyWkTFyjx3cuG5Kx0.jpg'),
-  cuteSnaps: asset('photos/Screenshot 2026-05-09 025853.png'),
-  doodleStrip: asset('photos/Screenshot 2026-05-09 025918.png'),
+  scrapbook: asset('photos/scrapbook.webp'),
+  collage: asset('photos/collage.webp'),
+  cameraWide: asset('photos/camera-wide.webp'),
+  cameraPoster: asset('photos/camera-poster.webp'),
+  cameraTop: asset('photos/camera-top.webp'),
+  y2kGreen: asset('photos/y2k-green.webp'),
+  cuteSnaps: asset('photos/cute-snaps.webp'),
+  doodleStrip: asset('photos/doodle-strip.webp'),
   previewDigicam: asset('filters/retro cam.jpg'),
   previewVhs: asset('filters/vhs.jpg'),
   previewGrain: asset('filters/film grain.jpg'),
@@ -133,8 +94,19 @@ export const ASSETS = {
     asset('audio/vhs-heartbeat.mp3'),
     asset('audio/polaroids-in-a-shoebox.mp3'),
   ],
-  shutter: 'https://www.soundjay.com/mechanical/camera-shutter-click-01.mp3',
+  shutter: asset('audio/shutter.wav'),
 };
+
+export const photoDimensions = new Map([
+  [ASSETS.scrapbook, { width: 1200, height: 1200, srcSet: `${asset('photos/scrapbook-small.webp')} 320w, ${ASSETS.scrapbook} 1200w` }],
+  [ASSETS.collage, { width: 1199, height: 1200, srcSet: `${asset('photos/collage-small.webp')} 320w, ${ASSETS.collage} 1199w` }],
+  [ASSETS.cameraWide, { width: 1200, height: 675, srcSet: `${asset('photos/camera-wide-small.webp')} 320w, ${ASSETS.cameraWide} 1200w` }],
+  [ASSETS.cameraPoster, { width: 800, height: 1200, srcSet: `${asset('photos/camera-poster-small.webp')} 213w, ${ASSETS.cameraPoster} 800w` }],
+  [ASSETS.cameraTop, { width: 474, height: 379, srcSet: `${asset('photos/camera-top-small.webp')} 320w, ${ASSETS.cameraTop} 474w` }],
+  [ASSETS.y2kGreen, { width: 1200, height: 800, srcSet: `${asset('photos/y2k-green-small.webp')} 320w, ${ASSETS.y2kGreen} 1200w` }],
+  [ASSETS.cuteSnaps, { width: 651, height: 392, srcSet: `${asset('photos/cute-snaps-small.webp')} 320w, ${ASSETS.cuteSnaps} 651w` }],
+  [ASSETS.doodleStrip, { width: 177, height: 189, srcSet: `${asset('photos/doodle-strip-small.webp')} 177w, ${ASSETS.doodleStrip} 177w` }],
+]);
 
 export const assetPhotos = [
   ASSETS.y2kGreen,
@@ -279,23 +251,23 @@ export const frames = [
  * Custom PNG overlay templates.
  * Each template has a fixed number of photo slots and a PNG overlay image.
  * Photos are drawn at the defined slot positions, then the PNG overlay is drawn on top.
+ * Bounds include a small bleed under the painted edge of each opening.
  * Slot coordinates are normalized (0–1) relative to the template image dimensions.
  */
 export const customTemplates = [
+  // ── Existing templates ──
   {
     id: 'custom-capturing-moments',
     name: 'Capturing Moments',
     type: 'custom',
     slots: 3,
     image: capturingMomentsOverlay,
-    // Keep raw path as fallback for asset() lookups (e.g. tests)
     imagePath: 'templates/capturing-moments.png',
-    // Template image aspect ratio (793 x 1983) — measured via sharp
     aspectRatio: 793 / 1983,
     photoSlots: [
-      { x: 0.1727, y: 0.2239, w: 0.6507, h: 0.1719 },
-      { x: 0.1803, y: 0.4236, w: 0.6406, h: 0.1729 },
-      { x: 0.1677, y: 0.6157, w: 0.6519, h: 0.1487 },
+      { x: 0.166674, y: 0.222390, w: 0.662864, h: 0.175492 },
+      { x: 0.174250, y: 0.422088, w: 0.651501, h: 0.177005 },
+      { x: 0.162886, y: 0.614221, w: 0.662864, h: 0.152799 },
     ],
   },
   {
@@ -305,57 +277,194 @@ export const customTemplates = [
     slots: 3,
     image: template2Overlay,
     imagePath: 'templates/2.png',
-    // Template image aspect ratio (941 x 1672) — measured via sharp
     aspectRatio: 941 / 1672,
     photoSlots: [
-      {
-        id: 'slot-1',
-        x: 0.3395,
-        y: 0.0649,
-        w: 0.4410,
-        h: 0.2482,
-        rot: 5.0,
-        borderRadius: '14px',
-        corners: {
-          topLeft: { x: 0.3698, y: 0.0718 },
-          topRight: { x: 0.7885, y: 0.0921 },
-          bottomRight: { x: 0.7503, y: 0.3062 },
-          bottomLeft: { x: 0.3316, y: 0.2859 },
-        },
-      },
-      {
-        id: 'slot-2',
-        x: 0.2885,
-        y: 0.3364,
-        w: 0.4410,
-        h: 0.2482,
-        rot: 5.0,
-        borderRadius: '14px',
-        corners: {
-          topLeft: { x: 0.3188, y: 0.3379 },
-          topRight: { x: 0.7375, y: 0.3589 },
-          bottomRight: { x: 0.6993, y: 0.5742 },
-          bottomLeft: { x: 0.2806, y: 0.5532 },
-        },
-      },
-      {
-        id: 'slot-3',
-        x: 0.2375,
-        y: 0.6080,
-        w: 0.4410,
-        h: 0.2482,
-        rot: 5.0,
-        borderRadius: '14px',
-        corners: {
-          topLeft: { x: 0.2678, y: 0.6041 },
-          topRight: { x: 0.6865, y: 0.6250 },
-          bottomRight: { x: 0.6482, y: 0.8403 },
-          bottomLeft: { x: 0.2295, y: 0.8194 },
-        },
-      },
+      { x: 0.342829, y: 0.065525, w: 0.431892, h: 0.240892, rot: 5.46 },
+      { x: 0.290928, y: 0.335376, w: 0.438670, h: 0.256504, rot: 6.19 },
+      { x: 0.242563, y: 0.620152, w: 0.441403, h: 0.231803, rot: 6.35 },
+    ],
+  },
+
+  // ── 1-photo templates ──
+  {
+    id: 'custom-ribbon',
+    name: 'Ribbon',
+    type: 'custom',
+    slots: 1,
+    image: ribbonOverlay,
+    imagePath: 'templates/1-photo-ribbon.png',
+    // 1536 x 2304
+    aspectRatio: 1536 / 2304,
+    photoSlots: [
+      { x: 0.116674, y: 0.254528, w: 0.777059, h: 0.470975, rot: -7.04 },
+    ],
+  },
+
+  // ── 2-photo templates ──
+  {
+    id: 'custom-memorie-plus',
+    name: 'Memorie+',
+    type: 'custom',
+    slots: 2,
+    image: memorieOverlay,
+    imagePath: 'templates/phtotostrip 2.png',
+    // 600 x 1464
+    aspectRatio: 600 / 1464,
+    photoSlots: [
+      { x: 0.050000, y: 0.020492, w: 0.900000, h: 0.454918 },
+      { x: 0.050000, y: 0.475410, w: 0.900000, h: 0.454918 },
+    ],
+  },
+  {
+    id: 'custom-out-of-orbit',
+    name: 'Out of Orbit',
+    type: 'custom',
+    slots: 2,
+    image: outOfOrbitOverlay,
+    imagePath: 'templates/2-photo-out-of-orbit.png',
+    // 600 x 1083
+    aspectRatio: 600 / 1083,
+    photoSlots: [
+      { x: 0.075000, y: 0.138504, w: 0.850000, h: 0.354571 },
+      { x: 0.075000, y: 0.509695, w: 0.850000, h: 0.354571 },
+    ],
+  },
+  {
+    id: 'custom-cherry-vinyl',
+    name: 'Cherry Vinyl',
+    type: 'custom',
+    slots: 2,
+    image: cherryVinylOverlay,
+    imagePath: 'templates/2-photo-cherry-vinyl.png',
+    // 1536 x 2304
+    aspectRatio: 1536 / 2304,
+    photoSlots: [
+      { x: 0.112184, y: 0.165573, w: 0.635655, h: 0.286465, rot: -11.04 },
+      { x: 0.379975, y: 0.547094, w: 0.514184, h: 0.283859, rot: 9.98 },
+    ],
+  },
+  {
+    id: 'custom-feedback',
+    name: 'Feedback',
+    type: 'custom',
+    slots: 2,
+    image: feedbackOverlay,
+    imagePath: 'templates/2-photo-feedback.png',
+    // 1536 x 2304
+    aspectRatio: 1536 / 2304,
+    photoSlots: [
+      { x: 0.076418, y: 0.145452, w: 0.687012, h: 0.278974, rot: -10.03 },
+      { x: 0.264156, y: 0.553606, w: 0.641596, h: 0.309021, rot: 8.01 },
+    ],
+  },
+
+  // ── 3-photo templates ──
+  {
+    id: 'custom-on-repeat',
+    name: 'On Repeat',
+    type: 'custom',
+    slots: 3,
+    image: onRepeatOverlay,
+    imagePath: 'templates/3-photo-on-repeat.png',
+    // 600 x 1485
+    aspectRatio: 600 / 1485,
+    photoSlots: [
+      { x: 0.075000, y: 0.101010, w: 0.850000, h: 0.258586 },
+      { x: 0.075000, y: 0.371717, w: 0.850000, h: 0.258586 },
+      { x: 0.075000, y: 0.642424, w: 0.850000, h: 0.258586 },
+    ],
+  },
+  {
+    id: 'custom-gingham-wave',
+    name: 'Gingham Wave',
+    type: 'custom',
+    slots: 3,
+    image: ginghamWaveOverlay,
+    imagePath: 'templates/3-photo-gingham-wave.png',
+    // 1536 x 2304
+    aspectRatio: 1536 / 2304,
+    photoSlots: [
+      { x: 0.094081, y: 0.068199, w: 0.621803, h: 0.223840, rot: -6.01 },
+      { x: 0.354004, y: 0.373214, w: 0.562022, h: 0.243608, rot: 7.00 },
+      { x: 0.083761, y: 0.697906, w: 0.632599, h: 0.232242, rot: -5.01 },
+    ],
+  },
+
+  // ── 4-photo templates ──
+  {
+    id: 'custom-flashback',
+    name: 'Flashback',
+    type: 'custom',
+    slots: 4,
+    image: flashbackOverlay,
+    imagePath: 'templates/4-photo-flashback.png',
+    // 600 x 1887
+    aspectRatio: 600 / 1887,
+    photoSlots: [
+      { x: 0.075000, y: 0.079491, w: 0.850000, h: 0.203498 },
+      { x: 0.075000, y: 0.292528, w: 0.850000, h: 0.203498 },
+      { x: 0.075000, y: 0.505564, w: 0.850000, h: 0.203498 },
+      { x: 0.075000, y: 0.718601, w: 0.850000, h: 0.203498 },
+    ],
+  },
+  {
+    id: 'custom-prism',
+    name: 'Prism',
+    type: 'custom',
+    slots: 4,
+    image: prismOverlay,
+    imagePath: 'templates/4-photo-prism.png',
+    // 1024 x 1536
+    aspectRatio: 1024 / 1536,
+    photoSlots: [
+      { x: 0.045692, y: 0.043140, w: 0.467383, h: 0.214990, rot: -6.22 },
+      { x: 0.484455, y: 0.267245, w: 0.478426, h: 0.217781, rot: 6.40 },
+      { x: 0.034517, y: 0.478729, w: 0.443892, h: 0.214386, rot: -8.36 },
+      { x: 0.436405, y: 0.726121, w: 0.503340, h: 0.224702, rot: 4.50 },
+    ],
+  },
+  {
+    id: 'custom-garden-band',
+    name: 'Garden Band',
+    type: 'custom',
+    slots: 4,
+    image: gardenBandOverlay,
+    imagePath: 'templates/4-photo-garden-band.png',
+    // 1024 x 1536
+    aspectRatio: 1024 / 1536,
+    photoSlots: [
+      { x: 0.061469, y: 0.075349, w: 0.453695, h: 0.211761, rot: -9.08 },
+      { x: 0.470236, y: 0.297044, w: 0.469208, h: 0.212747, rot: 8.12 },
+      { x: 0.041539, y: 0.496142, w: 0.424123, h: 0.202406, rot: -7.94 },
+      { x: 0.398376, y: 0.706922, w: 0.505478, h: 0.221772, rot: 6.11 },
+    ],
+  },
+  {
+    id: 'custom-indigo-bel',
+    name: 'Indigo Bel',
+    type: 'custom',
+    slots: 4,
+    image: indigoBelFourOverlay,
+    imagePath: 'templates/indigo-bel-four.png',
+    // 1200 x 3600
+    aspectRatio: 1200 / 3600,
+    photoSlots: [
+      { x: 0.090000, y: 0.026667, w: 0.820000, h: 0.207500 },
+      { x: 0.090000, y: 0.249167, w: 0.820000, h: 0.208333 },
+      { x: 0.090000, y: 0.472500, w: 0.820000, h: 0.207500 },
+      { x: 0.090000, y: 0.695833, w: 0.820000, h: 0.207500 },
     ],
   },
 ];
+
+const stickerFiles = [...assetMap.keys()].filter(path => path.startsWith('stickers/')).map(path => path.slice(9));
+function numberedStickers(prefix, first, last) {
+  return stickerFiles.filter(name => {
+    if (!name.startsWith(prefix)) return false;
+    const number = Number(name.slice(prefix.length, -4));
+    return Number.isInteger(number) && number >= first && number <= last;
+  }).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+}
 
 export const stickerCategories = [
   {
@@ -368,27 +477,27 @@ export const stickerCategories = [
     id: 'y2k-pop',
     name: 'Y2K Pop',
     vibe: 'Bright throwback PNGs',
-    items: ['sticker1.png', ...Array.from({ length: 20 }, (_, i) => `sticker2_${i + 1}.png`)],
+    items: numberedStickers('sticker2_', 1, 20),
   },
   {
     id: 'cute-cutouts',
     name: 'Cute Cutouts',
     vibe: 'Soft scrapbook bits',
-    items: Array.from({ length: 20 }, (_, i) => `sticker2_${i + 21}.png`),
+    items: numberedStickers('sticker2_', 21, 40),
   },
   {
     id: 'aesthetic-mix',
     name: 'Aesthetic Mix',
     vibe: 'Collage-friendly accents',
-    items: Array.from({ length: 24 }, (_, i) => `stickers3_${i + 1}.png`),
+    items: numberedStickers('stickers3_', 1, 24),
   },
   {
     id: 'retro-booth',
     name: 'Retro Booth',
     vibe: 'Film strip extras',
     items: [
-      ...Array.from({ length: 36 }, (_, i) => `stickers3_${i + 25}.png`),
-      ...Array.from({ length: 19 }, (_, i) => `sticker4_${i + 1}.png`),
+      ...numberedStickers('stickers3_', 25, 60),
+      ...numberedStickers('sticker4_', 1, 19),
     ],
   },
   {
@@ -410,28 +519,10 @@ export const stickerCategories = [
       'premium_videocassette.png',
     ],
   },
-].map(category => ({
-  ...category,
-  items: category.items.filter(item => {
-    // If it's a text sticker (no image extension), keep it
-    if (!item.match(/\.(png|jpg|jpeg|webp|svg)$/)) return true;
-    // For images, ensure it exists in our resolved lazyLoaders or assetMap
-    return lazyLoaders.has(item) || assetMap.has(item);
-  })
-}));
+];
 
-const definedStickers = new Set(stickerCategories.flatMap(c => c.items));
-const customStickers = [];
-
-// Find any stickers that were added to the folder but aren't in the predefined lists
-for (const rawPath of Object.keys(lazyModules)) {
-  if (rawPath.includes('/stickers/')) {
-    const basename = rawPath.split('/').pop();
-    if (!definedStickers.has(basename)) {
-      customStickers.push(basename);
-    }
-  }
-}
+const definedStickers = new Set(stickerCategories.flatMap(category => category.items));
+const customStickers = stickerFiles.filter(name => !definedStickers.has(name));
 
 if (customStickers.length > 0) {
   stickerCategories.push({
@@ -465,7 +556,7 @@ export const BACKGROUNDS = [
 
 /** URLs worth warming on startup (hero-critical). */
 export const PRELOAD_IMAGE_URLS = [
-  ASSETS.y2kGreen,
-  ASSETS.scrapbook,
+  asset('photos/y2k-green-small.webp'),
+  asset('photos/scrapbook-small.webp'),
   ASSETS.previewDigicam,
 ];

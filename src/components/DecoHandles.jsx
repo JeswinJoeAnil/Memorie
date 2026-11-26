@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowLeftRight, ArrowUpDown, RotateCw, Sparkles, Trash2 } from 'lucide-react';
 
-export function DecoHandles({ deco, setDecorations, elementRef }) {
+export function DecoHandles({ deco, setDecorations, elementRef, hideDelete = false }) {
   const handleResize = (e) => {
     e.stopPropagation();
     const target = e.currentTarget;
@@ -142,30 +142,43 @@ export function DecoHandles({ deco, setDecorations, elementRef }) {
     setDecorations(prev => prev.filter(d => d.id !== deco.id));
   };
 
+  function keyboardAdjust(e, operation) {
+    if (e.detail !== 0) return;
+    e.stopPropagation();
+    setDecorations(prev => prev.map(d => {
+      if (d.id !== deco.id) return d;
+      if (operation === 'rotate') return { ...d, rotation: (d.rotation || 0) + 15 };
+      const factor = e.shiftKey ? 1 / 1.1 : 1.1;
+      return { ...d,
+        scaleX: Math.max(0.1, Math.min(10, (d.scaleX || 1) * (operation === 'height' ? 1 : factor))),
+        scaleY: Math.max(0.1, Math.min(10, (d.scaleY || 1) * (operation === 'width' ? 1 : factor))),
+      };
+    }));
+  }
+
   const invScale = {
-    scaleX: 1 / (deco.scaleX || 1),
-    scaleY: 1 / (deco.scaleY || 1),
+    scale: `${1 / (deco.scaleX || 1)} ${1 / (deco.scaleY || 1)}`,
   };
 
   return (
     <>
-      <div className="deco-handle delete-handle" data-tip="Remove" onPointerDown={handleDelete} style={invScale}>
+      {!hideDelete && <button type="button" aria-label="Remove" className="deco-handle delete-handle" data-tip="Remove" onClick={handleDelete} style={invScale}>
         <Trash2 size={11} />
-      </div>
-      <div className="deco-handle rotate-handle" data-tip="Rotate" onPointerDown={handleRotate} style={invScale}>
+      </button>}
+      {!hideDelete && <button type="button" aria-label="Rotate" className="deco-handle rotate-handle" data-tip="Rotate" onPointerDown={handleRotate} onClick={e => keyboardAdjust(e, 'rotate')} style={invScale}>
         <RotateCw size={13} />
-      </div>
-      <div className="deco-handle resize-handle" data-tip="Scale All" onPointerDown={handleResize} style={invScale}>
+      </button>}
+      <button type="button" aria-label="Scale All" className="deco-handle resize-handle" data-tip="Scale All" onPointerDown={handleResize} onClick={e => keyboardAdjust(e, 'both')} style={invScale}>
         <Sparkles size={13} />
-      </div>
+      </button>
 
       {/* Stretch Handles (Horizontal X & Vertical Y) */}
-      <div className="deco-handle stretch-x-handle" data-tip="Stretch Width" onPointerDown={handleStretchX} style={invScale}>
+      <button type="button" aria-label="Stretch Width" className="deco-handle stretch-x-handle" data-tip="Stretch Width" onPointerDown={handleStretchX} onClick={e => keyboardAdjust(e, 'width')} style={invScale}>
         <ArrowLeftRight size={13} />
-      </div>
-      <div className="deco-handle stretch-y-handle" data-tip="Stretch Height" onPointerDown={handleStretchY} style={invScale}>
+      </button>
+      <button type="button" aria-label="Stretch Height" className="deco-handle stretch-y-handle" data-tip="Stretch Height" onPointerDown={handleStretchY} onClick={e => keyboardAdjust(e, 'height')} style={invScale}>
         <ArrowUpDown size={13} />
-      </div>
+      </button>
 
       {/* Corner Dots - uniform scale */}
       <div className="deco-corner top-left" onPointerDown={handleResize} style={invScale} />

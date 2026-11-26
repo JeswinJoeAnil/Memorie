@@ -1,3 +1,4 @@
+import { GradedPhoto } from './GradedPhoto.jsx';
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -14,7 +15,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { assetPhotos } from '../constants/assets.js';
-import { encodeVideoFrameToStrip } from '../utils/capture.js';
+import { importPhoto, encodeVideoFrameToStrip } from '../utils/capture.js';
 import { burstConfirmMessage, fullStripMessage, isStreamAlive, isStripFull, needsBurstConfirm } from '../utils/captureGuards.js';
 import { getFormattedTimestamp } from '../utils/timestamp.js';
 import { CameraOverlay } from './CameraOverlay.jsx';
@@ -43,7 +44,6 @@ function CameraBoothComponent({
 }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const streamRef = useRef(null);
   const capturedRef = useRef(captured);
   capturedRef.current = captured;
 
@@ -60,16 +60,9 @@ function CameraBoothComponent({
     setTimestamp(getFormattedTimestamp());
   }, [setTimestamp]);
 
-  /* Request camera when booth opens (lazy permission request) */
-  useEffect(() => {
-    if (isOpen && !cameraStream && !streaming && onRequestCamera) {
-      onRequestCamera();
-    }
-  }, [isOpen, cameraStream, streaming, onRequestCamera]);
-
   /* Use the pre-acquired camera stream from App (borrowed, never stopped here) */
   useEffect(() => {
-    if (!cameraStream) return;
+    if (!cameraStream) { setStreaming(false); return; }
     if (!isStreamAlive(cameraStream)) {
       setStreaming(false);
       onCameraExpired?.();
@@ -77,27 +70,18 @@ function CameraBoothComponent({
     }
     if (videoRef.current) {
       videoRef.current.srcObject = cameraStream;
-      streamRef.current = cameraStream;
       setStreaming(true);
       setError('');
       setStatusMessage('Camera ready.');
     }
+    const track = cameraStream.getVideoTracks()[0];
+    track?.addEventListener('ended', onCameraExpired);
+    return () => track?.removeEventListener('ended', onCameraExpired);
   }, [cameraStream, onCameraExpired]);
 
-  /* Detach video on unmount only — App owns the stream so page switches keep it alive.
-     Only stop tracks that we own locally (fallback), never the borrowed App stream. */
-  useEffect(() => {
-    return () => {
-      try {
-        if (videoRef.current) videoRef.current.srcObject = null;
-      } catch { /* noop */ }
-      const owned = streamRef.current && streamRef.current !== cameraStream;
-      if (owned) {
-        try { owned.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
-      }
-      streamRef.current = null;
-    };
-  }, [cameraStream]);
+  // A stopped countdown or import must never commit into a later session.
+  const operation = useRef(0);
+  useEffect(() => () => { operation.current++; }, []);
 
   const fireFlash = useCallback(() => {
     if (!flashOn) return;
@@ -121,14 +105,17 @@ function CameraBoothComponent({
       updateTimestamp();
     }
 
-    const dataUrl = await encodeVideoFrameToStrip(canvas, video, mirrorOn, activeFilter.css);
+    let dataUrl;
+    try { dataUrl = await encodeVideoFrameToStrip(canvas, video, mirrorOn); }
+    catch { return currentCaptured; }
     fireFlash();
     if (onCapture) onCapture();
     return [...currentCaptured, dataUrl];
-  }, [activeFilter.css, fireFlash, mirrorOn, onCapture, streaming, updateTimestamp]);
+  }, [fireFlash, mirrorOn, onCapture, streaming, updateTimestamp]);
 
   const handleFileUpload = useCallback((e) => {
     const input = e.target;
+    if (shootingRef.current) return;
     const files = Array.from(input.files || []);
     if (files.length === 0) return;
 
@@ -137,10 +124,6 @@ function CameraBoothComponent({
       setStatusMessage(`The strip is already full with ${mode} photos. Clear the roll to add more.`);
       input.value = '';
       return;
-    }
-
-    if (captured.length === 0) {
-      updateTimestamp();
     }
 
     const imageFiles = files.filter(f => f.type.startsWith('image/'));
@@ -157,27 +140,27 @@ function CameraBoothComponent({
 
     if (filesToProcess.length === 0) return;
 
-    const readFile = (file) => new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (event) => resolve(event.target.result);
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
-    });
-
+    const session = ++operation.current;
+    shootingRef.current = true;
+    setShooting(true);
     (async () => {
-      let addedCount = 0;
-      for (const file of filesToProcess) {
-        try {
-          const dataUrl = await readFile(file);
-          setCaptured((list) => [...list, dataUrl]);
-          addedCount++;
-        } catch {
-          setStatusMessage('Skipped a file that could not be read.');
+      const added = [];
+      let warning = files.length > filesToProcess.length ? 'Some files were skipped.' : '';
+      try {
+        for (const file of filesToProcess) {
+          try { added.push(await importPhoto(file)); }
+          catch (err) { warning = err.message || 'Could not read a photo.'; }
         }
-      }
-      if (onCapture) onCapture();
-      if (addedCount > 0) {
-        setStatusMessage(`Added ${addedCount} ${addedCount === 1 ? 'photo' : 'photos'} to the strip.`);
+        if (session !== operation.current) return;
+        if (added.length && !captured.length) updateTimestamp();
+        setCaptured(list => [...list, ...added].slice(0, mode));
+        setStatusMessage(`Added ${added.length} photos. ${warning}`.trim());
+        if (added.length) onCapture?.();
+      } finally {
+        if (session === operation.current) {
+          shootingRef.current = false;
+          setShooting(false);
+        }
       }
     })();
   }, [captured.length, mode, onCapture, setCaptured, updateTimestamp]);
@@ -200,6 +183,7 @@ function CameraBoothComponent({
       return;
     }
 
+    const session = ++operation.current;
     shootingRef.current = true;
     setShooting(true);
     setOpen(true);
@@ -211,12 +195,14 @@ function CameraBoothComponent({
       for (let t = timer; t >= 1; t--) {
         setCountdown(t);
         await delay(1000);
+        if (session !== operation.current) return;
       }
     }
     setCountdown(null);
 
     const prev = capturedRef.current;
     const next = await captureOnePhoto(prev);
+    if (session !== operation.current) return;
     if (next.length === prev.length) {
       setStatusMessage("Couldn't capture — camera not ready. Allow access or use Import.");
       setShotIndex(null);
@@ -230,7 +216,6 @@ function CameraBoothComponent({
     setShotIndex(null);
     setShooting(false);
     shootingRef.current = false;
-    window.setTimeout(() => document.getElementById('memory-lab')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 400);
   }, [captureOnePhoto, mode, setCaptured, setOpen, timer, streaming, onRequestCamera]);
 
   const runSequentialCapture = useCallback(async (totalShots) => {
@@ -250,24 +235,26 @@ function CameraBoothComponent({
       if (!ok) return;
     }
 
+    const session = ++operation.current;
     shootingRef.current = true;
     setShooting(true);
     setOpen(true);
     let currentPhotos = [];
-    setCaptured([]);
 
     for (let i = 0; i < totalShots; i++) {
-      if (!shootingRef.current) break;
+      if (session !== operation.current) return;
       setShotIndex(i + 1);
       if (timer > 0) {
         for (let t = timer; t >= 1; t--) {
           setCountdown(t);
           await delay(1000);
+          if (session !== operation.current) return;
         }
       }
       setCountdown(null);
       const before = currentPhotos.length;
       currentPhotos = await captureOnePhoto(currentPhotos);
+      if (session !== operation.current) return;
       if (currentPhotos.length === before) {
         setStatusMessage("Stopped — camera not ready. Allow access or use Import.");
         break;
@@ -282,10 +269,10 @@ function CameraBoothComponent({
     setShotIndex(null);
     setShooting(false);
     shootingRef.current = false;
-    window.setTimeout(() => document.getElementById('memory-lab')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 400);
   }, [captureOnePhoto, setCaptured, setOpen, timer, streaming, onRequestCamera]);
 
   const stopBurst = useCallback(() => {
+    operation.current++;
     shootingRef.current = false;
     setShooting(false);
     setCountdown(null);
@@ -313,7 +300,7 @@ function CameraBoothComponent({
         <div className="capture-layout">
           <div className="mode-stack" role="radiogroup" aria-label="Photo count">
             <span className="mode-stack-label">Strip length</span>
-            {[2, 3, 4, 6].map((item) => (
+            {[1, 2, 3, 4, 6].map((item) => (
               <button
                 key={item}
                 type="button"
@@ -331,7 +318,7 @@ function CameraBoothComponent({
           </div>
           <div className="camera-stage">
             <video ref={videoRef} autoPlay playsInline muted className="live-video" aria-label="Live camera preview" style={{ filter: activeFilter.css, transform: mirrorOn ? 'scaleX(-1)' : 'none' }} />
-            {!streaming && <img src={assetPhotos[captured.length % assetPhotos.length]} className="live-video fallback-video" style={{ filter: activeFilter.css }} alt="" />}
+            {!streaming && <GradedPhoto filter={activeFilter} src={assetPhotos[captured.length % assetPhotos.length]} className="live-video fallback-video" alt="" />}
             <CameraOverlay timestamp={timestamp} />
             <AnimatePresence mode="wait">
               {countdown && <motion.div className="countdown" role="timer" aria-live="polite" aria-atomic="true" key={countdown} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.5, opacity: 0 }}>{countdown}</motion.div>}
@@ -387,11 +374,11 @@ function CameraBoothComponent({
                 </div>
               </div>
               <div className="secondary-actions" style={{ display: 'flex', gap: '8px' }}>
-                <button type="button" className="pill-button" onClick={() => { if (captured.length === 0) return; const ok = window.confirm(`Clear all ${captured.length} photos? This cannot be undone.`); if (!ok) return; setCaptured([]); setStatusMessage('Roll cleared.'); }} disabled={captured.length === 0}>Clear roll</button>
+                <button type="button" className="pill-button" onClick={() => { if (captured.length === 0) return; const ok = window.confirm(`Clear all ${captured.length} photos? This cannot be undone.`); if (!ok) return; setCaptured([]); setStatusMessage('Roll cleared.'); }} disabled={shooting || captured.length === 0}>Clear roll</button>
                 <button type="button" className="pill-button import-btn" onClick={() => document.getElementById('booth-file-upload').click()} aria-controls="booth-file-upload">
                   <Upload size={16} /> Import
                 </button>
-                <input type="file" id="booth-file-upload" className="sr-only" multiple accept="image/*" onChange={handleFileUpload} aria-label="Import photos" />
+                <input type="file" id="booth-file-upload" className="sr-only" multiple accept="image/jpeg,image/png,image/webp,image/avif" onChange={handleFileUpload} aria-label="Import photos" />
               </div>
             </>
           ) : (

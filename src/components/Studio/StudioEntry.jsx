@@ -61,9 +61,6 @@ function StudioEntryComponent({ isOpen, onClose, onCreateRoom, onJoinRoom }) {
         <div className="studio-overlay-backdrop" onClick={handleClose} role="presentation" />
         <motion.div
           className="studio-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Memorie Studio"
           initial={{ opacity: 0, y: 40, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 40, scale: 0.96 }}

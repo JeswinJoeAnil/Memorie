@@ -1,3 +1,4 @@
+import { GradedPhoto } from './GradedPhoto.jsx';
 import React, { memo, useCallback } from 'react';
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion';
 import {
@@ -13,7 +14,7 @@ const PhotoStack = memo(function PhotoStackComponent({ photos, filter }) {
   return (
     <div className="photo-stack">
       {photos.map((photo, index) => (
-        <motion.img key={index} src={photo} style={{ filter: filter.css }} alt="" initial={{ opacity: 0, rotate: -5 + index * 4, x: index * 18, y: index * -8 }} animate={{ opacity: 1, rotate: -5 + index * 4, x: index * 18, y: index * -8 }} transition={{ delay: index * 0.08 }} />
+        <GradedPhoto as={motion.img} filter={filter} key={index} src={photo} alt="" initial={{ opacity: 0, rotate: -5 + index * 4, x: index * 18, y: index * -8 }} animate={{ opacity: 1, rotate: -5 + index * 4, x: index * 18, y: index * -8 }} transition={{ delay: index * 0.08 }} />
       ))}
     </div>
   );
@@ -28,7 +29,7 @@ const DeviceFrame = memo(function DeviceFrameComponent({ photos, filter, compact
         <span><Film size={16} />Film mode</span>
       </div>
       <div className="device-screen">
-        <img src={photos[0]} style={{ filter: filter.css }} alt="" />
+        <GradedPhoto filter={filter} src={photos[0]} alt="" />
         <CameraOverlay timestamp={timestamp} />
       </div>
       <div className="device-counter">3</div>

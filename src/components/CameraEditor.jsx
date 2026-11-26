@@ -1,3 +1,4 @@
+import { GradedPhoto } from './GradedPhoto.jsx';
 import React, { memo } from 'react';
 import { motion } from 'framer-motion';
 import { Move, Sparkles, Wand2 } from 'lucide-react';
@@ -48,7 +49,7 @@ function CameraEditorComponent(props) {
             <div className="filter-grid">
               {filters.map((f) => (
                 <button key={f.id} type="button" className={activeFilter.id === f.id ? 'active' : ''} onClick={() => setActiveFilter(f)} aria-pressed={activeFilter.id === f.id}>
-                  <img src={f.preview} style={{ filter: f.css }} alt="" aria-hidden="true" />
+                  <GradedPhoto src={f.preview} filter={f} alt="" aria-hidden="true" />
                   <span>{f.name}</span>
                 </button>
               ))}

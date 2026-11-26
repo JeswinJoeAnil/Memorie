@@ -1,3 +1,4 @@
+import { useDialogFocus } from '../../hooks/useDialogFocus.js';
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useStudioRoom } from '../../hooks/useStudioRoom.js';
@@ -136,9 +137,11 @@ function StudioModeComponent({ isOpen, onClose, onCaptureComplete }) {
 
   const selfMember = studio.roomState?.members?.find((m) => m.peerId === studio.selfPeerId);
 
+  const dialog = useDialogFocus(isOpen, handleClose);
   if (!isOpen) return null;
 
   return (
+    <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Memorie Studio">
     <AnimatePresence mode="wait">
       {phase === 'entry' && (
         <StudioEntry
@@ -290,6 +293,7 @@ function StudioModeComponent({ isOpen, onClose, onCaptureComplete }) {
         </motion.div>
       )}
     </AnimatePresence>
+    </div>
   );
 }
 

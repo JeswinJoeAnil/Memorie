@@ -11,6 +11,7 @@ export function SiteChrome({
   currentPage,
   capturedCount,
   onGoToEditor,
+  onGoHome,
   onStudioOpen,
 }) {
   const [isFeedbackOpen, setFeedbackOpen] = useState(false);
@@ -29,6 +30,7 @@ export function SiteChrome({
   return (
     <>
       <Header
+        onGoHome={onGoHome}
         audioOn={audioOn}
         toggleAudio={toggleAudio}
         nextTrack={nextTrack}

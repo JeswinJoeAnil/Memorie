@@ -8,23 +8,11 @@ import {
   Type,
   Wand2,
 } from 'lucide-react';
-import { asset, resolveAssetAsync, stickerCategories, BACKGROUNDS } from '../constants/assets.js';
+import { asset, stickerCategories, BACKGROUNDS } from '../constants/assets.js';
 import { Slider } from './Slider.jsx';
 
 function StickerImg({ name }) {
-  const [src, setSrc] = useState(() => asset(name));
-  useEffect(() => {
-    let live = true;
-    const sync = asset(name);
-    if (sync) {
-      setSrc(sync);
-      return () => { live = false; };
-    }
-    resolveAssetAsync(name).then((url) => {
-      if (live && url) setSrc(url);
-    });
-    return () => { live = false; };
-  }, [name]);
+  const src = asset(name);
   if (!src) return <span aria-hidden="true" style={{ fontSize: 11, opacity: 0.6 }}>…</span>;
   return <img src={src} alt="" aria-hidden="true" loading="lazy" decoding="async" onError={(e) => { e.target.style.display = 'none'; }} />;
 }

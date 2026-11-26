@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { doodlePointToExport, doodleWidthToExport } from './exportCanvas.js';
+import { doodlePointToExport, doodleWidthToExport } from './doodleGeometry.js';
 
 describe('doodle export scaling (P1.1)', () => {
   it('maps normalized points to export size', () => {

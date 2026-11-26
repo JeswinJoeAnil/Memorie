@@ -14,6 +14,7 @@ function HeaderComponent({
   nextTrack,
   onFeedbackOpen,
   onMenuOpen,
+  onGoHome,
   onStudioOpen,
   currentPage = 'capture',
   capturedCount = 0,
@@ -72,11 +73,11 @@ function HeaderComponent({
     return () => window.removeEventListener('scroll', handleScroll);
   }, [isMenuOpen]);
 
-  const links = currentPage === 'editor'
+  const links = currentPage === '404' || (currentPage === 'editor' && !capturedCount) ? [] : currentPage === 'editor'
     ? [
       { label: 'Templates', href: '#templates' },
-      { label: 'Editor', href: '#memory-lab' },
-      { label: 'Export', href: '#export' },
+      { label: 'Editor', href: '#strip-preview' },
+      { label: 'Export', href: '#downloads' },
     ]
     : [
       { label: 'Booth', href: '#booth' },
@@ -103,7 +104,7 @@ function HeaderComponent({
         willChange: 'transform, opacity',
       }}
     >
-      <a className="brand" href="#top">memorie<span>+</span></a>
+      <button type="button" className="brand" onClick={onGoHome}>memorie<span>+</span></button>
       <nav className="desktop-nav" aria-label="Primary navigation">
         {links.map((link) => (
           <a key={link.href} href={link.href}>{link.label}</a>
@@ -113,11 +114,11 @@ function HeaderComponent({
             Edit strip
           </button>
         )}
-        <button type="button" className="studio-nav-btn" onClick={onStudioOpen}>
+        {onStudioOpen && <button type="button" className="studio-nav-btn" onClick={onStudioOpen}>
           <Sparkles size={13} className="studio-sparkle-icon" />
           <span className="studio-text">STUDIO</span>
           <span className="studio-nav-star">✦</span>
-        </button>
+        </button>}
         <button type="button" className="feedback-link-btn" onClick={onFeedbackOpen}>
           <MessageSquare size={14} /> Feedback
         </button>

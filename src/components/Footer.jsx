@@ -1,5 +1,6 @@
 import React, { memo, useState, useCallback } from 'react';
-import { asset } from '../constants/assets.js';
+import leftSticker from '../../assets/stickers/sticker2_34.png';
+import rightSticker from '../../assets/stickers/stickers3_35.png';
 
 function FooterComponent() {
   const [email, setEmail] = useState('');
@@ -16,7 +17,10 @@ function FooterComponent() {
       const saved = JSON.parse(localStorage.getItem('memorie-newsletter') || '[]');
       saved.push({ email, at: new Date().toISOString() });
       localStorage.setItem('memorie-newsletter', JSON.stringify(saved));
-    } catch { /* storage full/blocked — still confirm honestly */ }
+    } catch {
+      setSubmitStatus('Could not save your address on this device.');
+      return;
+    }
     setSubmitStatus("Thanks! Saved on this device (demo list — no emails sent yet).");
     setEmail('');
     setTimeout(() => setSubmitStatus(''), 4000);
@@ -24,8 +28,8 @@ function FooterComponent() {
 
   return (
     <footer className="site-footer">
-      <img src={asset('sticker2_34.png')} alt="" className="f-sticker corner-l" aria-hidden="true" onError={(e) => { e.target.style.display = 'none'; }} />
-      <img src={asset('stickers3_35.png')} alt="" className="f-sticker corner-r" aria-hidden="true" onError={(e) => { e.target.style.display = 'none'; }} />
+      <img src={leftSticker} alt="" className="f-sticker corner-l" aria-hidden="true" onError={(e) => { e.target.style.display = 'none'; }} />
+      <img src={rightSticker} alt="" className="f-sticker corner-r" aria-hidden="true" onError={(e) => { e.target.style.display = 'none'; }} />
 
       <div className="footer-marquee" aria-hidden="true">
         <div className="marquee-content">

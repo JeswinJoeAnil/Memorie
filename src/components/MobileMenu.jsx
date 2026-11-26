@@ -1,29 +1,20 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
+import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { AnimatePresence, motion } from 'framer-motion';
 import { MessageSquare, Sparkles, X } from 'lucide-react';
 
 export function MobileMenu({ isOpen, onClose, onFeedbackOpen, onStudioOpen, currentPage = 'capture', capturedCount = 0, onGoToEditor }) {
-  const closeButtonRef = useRef(null);
-  const links = currentPage === 'editor'
+  const dialog = useDialogFocus(isOpen, onClose);
+  const links = currentPage === '404' || (currentPage === 'editor' && !capturedCount) ? [] : currentPage === 'editor'
     ? [
       { label: 'Templates', href: '#templates' },
-      { label: 'Editor', href: '#memory-lab' },
-      { label: 'Export', href: '#export' },
+      { label: 'Editor', href: '#strip-preview' },
+      { label: 'Export', href: '#downloads' },
     ]
     : [
       { label: 'Booth', href: '#booth' },
       { label: 'Templates', href: '#templates' },
     ];
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    closeButtonRef.current?.focus();
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, onClose]);
 
   return (
     <AnimatePresence>
@@ -37,6 +28,7 @@ export function MobileMenu({ isOpen, onClose, onFeedbackOpen, onStudioOpen, curr
         >
           <div className="menu-backdrop" onClick={onClose} role="presentation" />
           <motion.div
+            ref={dialog}
             className="menu-content"
             role="dialog"
             aria-modal="true"
@@ -46,7 +38,7 @@ export function MobileMenu({ isOpen, onClose, onFeedbackOpen, onStudioOpen, curr
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
           >
-            <button type="button" className="close-menu" onClick={onClose} aria-label="Close menu" ref={closeButtonRef}>
+            <button type="button" className="close-menu" onClick={onClose} aria-label="Close menu">
               <X size={24} />
             </button>
             <h2 id="mobile-menu-title" className="sr-only">Menu</h2>
@@ -78,7 +70,7 @@ export function MobileMenu({ isOpen, onClose, onFeedbackOpen, onStudioOpen, curr
                   Edit strip
                 </motion.button>
               )}
-              <motion.button
+              {onStudioOpen && <motion.button
                 type="button"
                 className="menu-feedback-btn menu-studio-btn"
                 onClick={() => { onClose(); onStudioOpen?.(); }}
@@ -89,7 +81,7 @@ export function MobileMenu({ isOpen, onClose, onFeedbackOpen, onStudioOpen, curr
                 whileTap={{ scale: 0.95 }}
               >
                 <Sparkles size={18} /> STUDIO ✦
-              </motion.button>
+              </motion.button>}
               <motion.button
                 type="button"
                 className="menu-feedback-btn"

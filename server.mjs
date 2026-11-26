@@ -1,6 +1,6 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, sep } from 'node:path';
 
 const root = join(process.cwd(), 'dist');
 const port = Number(process.env.PORT || 8788);
@@ -13,6 +13,10 @@ const mime = {
   '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml',
 };
 
 createServer((request, response) => {
@@ -27,29 +31,24 @@ createServer((request, response) => {
 
     let requested;
     try {
-      requested = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
+      requested = normalize(decodeURIComponent(url.pathname)).replaceAll('\\', '/').replace(/^(\.\.[/\\])+/, '');
     } catch {
       response.writeHead(400).end('Bad Request');
       return;
     }
 
-    let filePath = join(root, requested === '/' ? 'index.html' : requested);
-
-    /* Built with base '/Memorie/' — strip it when serving from root */
-    if (!existsSync(filePath) && (requested === '/Memorie' || requested.startsWith('/Memorie/'))) {
-      const stripped = requested.replace(/^\/Memorie/, '') || '/';
-      const tryPath = join(root, stripped === '/' ? 'index.html' : stripped);
-      if (tryPath.startsWith(root) && existsSync(tryPath)) {
-        filePath = tryPath;
+    const relative = requested.replace(/^\/Memorie(?:\/|$)/, '/');
+    let filePath = join(root, relative);
+    if (filePath !== root && !filePath.startsWith(root + sep)) {
+      response.writeHead(404).end('Not found');
+      return;
+    }
+    if (!existsSync(filePath) || statSync(filePath).isDirectory()) {
+      if (extname(relative)) {
+        response.writeHead(404).end('Not found');
+        return;
       }
-    }
-
-    if (!filePath.startsWith(root) || !existsSync(filePath)) {
       filePath = join(root, 'index.html');
-    }
-
-    if (statSync(filePath).isDirectory()) {
-      filePath = join(filePath, 'index.html');
     }
 
     response.writeHead(200, {
@@ -59,7 +58,7 @@ createServer((request, response) => {
       'Referrer-Policy': 'no-referrer',
       'X-Frame-Options': 'DENY',
     });
-    createReadStream(filePath).pipe(response);
+    createReadStream(filePath).on('error', () => response.destroy()).pipe(response);
   } catch {
     response.writeHead(500).end('Server Error');
   }

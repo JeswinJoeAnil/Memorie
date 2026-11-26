@@ -1,49 +1,45 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { motion, useDragControls } from 'framer-motion';
-import { asset, resolveAssetAsync } from '../constants/assets.js';
+import React, { useCallback, useRef, useState } from 'react';
+import { motion } from 'framer-motion';
+import { asset } from '../constants/assets.js';
 import { DecoHandles } from './DecoHandles.jsx';
 
 function DecoImage({ name }) {
-  const [src, setSrc] = useState(() => asset(name));
-  useEffect(() => {
-    let live = true;
-    if (asset(name)) return () => { live = false; };
-    resolveAssetAsync(name).then((url) => { if (live && url) setSrc(url); });
-    return () => { live = false; };
-  }, [name]);
+  const src = asset(name);
   if (!src) return <span style={{ fontSize: 11 }}>…</span>;
-  return <img src={src} alt="" onError={(e) => { e.target.style.display = 'none'; }} style={{ width: 100, display: 'block', pointerEvents: 'none' }} draggable="false" />;
+  return <img src={src} alt="" onError={(e) => { e.target.style.display = 'none'; }} style={{ width: name.startsWith('premium_') ? 48 : 100, display: 'block', pointerEvents: 'none' }} draggable="false" />;
 }
 
 export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown }) {
   const elementRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
-  const dragControls = useDragControls();
+  const drag = useRef(null);
 
-  const handleDrag = useCallback((event, info) => {
-    const parent = elementRef.current?.closest('.decorations-layer');
-    if (!parent) return;
-    const parentRect = parent.getBoundingClientRect();
-    const dxPct = (info.delta.x / parentRect.width) * 100;
-    const dyPct = (info.delta.y / parentRect.height) * 100;
-    setDecorations(prev => prev.map(d => d.id === deco.id ? { ...d, x: Math.min(100, Math.max(0, d.x + dxPct)), y: Math.min(100, Math.max(0, d.y + dyPct)) } : d));
-  }, [deco.id, setDecorations]);
-
-  const handleDragStart = useCallback(() => {
-    setIsDragging(true);
-  }, []);
-
-  const handleDragEnd = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  const handlePointerDown = useCallback((e) => {
-    if (e.target.closest('.deco-handle')) return;
+  const handlePointerDown = e => {
+    if (e.button !== 0 || e.target.closest('.deco-handle, .deco-corner')) return;
+    const parent = e.currentTarget.closest('.decorations-layer').getBoundingClientRect();
+    if (!parent.width || !parent.height) return;
     onPointerDown(e);
-    dragControls.start(e);
-  }, [dragControls, onPointerDown]);
+    drag.current = { id: e.pointerId, startX: e.clientX, startY: e.clientY, x: deco.x, y: deco.y, parent };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsDragging(true);
+  };
+
+  const handlePointerMove = e => {
+    const start = drag.current;
+    if (start?.id !== e.pointerId) return;
+    const x = Math.max(0, Math.min(100, start.x + 100 * (e.clientX - start.startX) / start.parent.width));
+    const y = Math.max(0, Math.min(100, start.y + 100 * (e.clientY - start.startY) / start.parent.height));
+    setDecorations(prev => prev.map(d => d.id === deco.id ? { ...d, x, y } : d));
+  };
+
+  const handleDragEnd = e => {
+    if (drag.current?.id !== e.pointerId) return;
+    drag.current = null;
+    setIsDragging(false);
+  };
 
   const handleKeyDown = useCallback((e) => {
+    if (e.target !== e.currentTarget) return;
     const step = e.shiftKey ? 5 : 1;
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
@@ -104,18 +100,13 @@ export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown })
         ref={elementRef}
         data-deco-id={deco.id}
         tabIndex={0}
-        role="button"
+        role="group"
         aria-label={ariaLabel}
         aria-roledescription="draggable decoration"
+        onFocus={onPointerDown}
         onKeyDown={handleKeyDown}
-        drag
-        dragControls={dragControls}
-        dragListener={false}
-        dragMomentum={false}
-        dragElastic={0}
-        onDragStart={handleDragStart}
-        onDrag={handleDrag}
-        onDragEnd={handleDragEnd}
+        onPointerMove={handlePointerMove}
+        onLostPointerCapture={handleDragEnd}
         style={{ ...style, color: deco.color, fontFamily: deco.font, boxShadow: 'none', textShadow: '0 2px 8px rgba(0,0,0,0.1)', ...bgStyle }}
         onPointerDown={handlePointerDown}
         whileTap={{ scale: 1.05 }}
@@ -133,18 +124,13 @@ export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown })
       ref={elementRef}
       data-deco-id={deco.id}
       tabIndex={0}
-      role="button"
+      role="group"
       aria-label={ariaLabel}
       aria-roledescription="draggable decoration"
-      onKeyDown={handleKeyDown}
-      drag
-      dragControls={dragControls}
-      dragListener={false}
-      dragMomentum={false}
-      dragElastic={0}
-      onDragStart={handleDragStart}
-      onDrag={handleDrag}
-      onDragEnd={handleDragEnd}
+      onFocus={onPointerDown}
+        onKeyDown={handleKeyDown}
+      onPointerMove={handlePointerMove}
+      onLostPointerCapture={handleDragEnd}
       style={{ ...style, ...bgStyle, color: deco.showBg !== false ? '#fff' : 'inherit' }}
       onPointerDown={handlePointerDown}
       whileTap={{ scale: (deco.scale ?? 1) * 1.05 }}

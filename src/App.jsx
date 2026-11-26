@@ -17,24 +17,16 @@ import { StripEditor } from './components/StripEditor.jsx';
 import { MemoryLab } from './components/MemoryLab.jsx';
 import { Footer } from './components/Footer.jsx';
 import { NotFound } from './components/NotFound.jsx';
-const StudioMode = lazy(() => import('./components/Studio/StudioMode.jsx').then(m => ({ default: m.StudioMode })));
+const studioEnabled = import.meta.env.VITE_ENABLE_STUDIO === 'true';
+const StudioMode = studioEnabled
+  ? lazy(() => import('./components/Studio/StudioMode.jsx').then(module => ({ default: module.StudioMode })))
+  : null;
 
-// Valid SPA routes - everything else is 404
-const VALID_HASHES = new Set(['', 'capture', 'editor', 'booth', 'templates']);
-function isValidRoute() {
-  const base = import.meta.env.BASE_URL || '/';
-  const path = window.location.pathname;
-  // Allow base path, index.html, and root (dev server)
-  const validPaths = new Set([base, `${base}index.html`, '/', '/index.html']);
-  // Also allow base without trailing slash
-  const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base;
-  if (validPaths.has(path) || path === normalizedBase) {
-    const hash = window.location.hash.replace(/^#\/?/, '').replace('#', '');
-    // empty hash or known hash = valid
-    if (hash === '' || VALID_HASHES.has(hash)) return true;
-    return false;
-  }
-  return false;
+function readPage() {
+  const url = new URL(window.location.href);
+  const base = import.meta.env.BASE_URL;
+  if (![base, base.slice(0, -1), base + 'index.html', '/', '/index.html'].includes(url.pathname)) return '404';
+  return url.searchParams.get('page') === 'editor' || url.hash === '#editor' ? 'editor' : 'capture';
 }
 
 export default function App() {
@@ -69,30 +61,28 @@ export default function App() {
   const [editorTab, setEditorTab] = useState('filters');
   const [stripTab, setStripTab] = useState('text');
   const [mirrorOn, setMirrorOn] = useState(true);
-  const [currentPage, setCurrentPage] = useState(() => {
-    if (!isValidRoute()) return '404';
-    const hash = window.location.hash.replace('#', '');
-    return hash === 'editor' ? 'editor' : 'capture';
-  });
+  const [currentPage, setCurrentPage] = useState(readPage);
+  const cameraOwner = useRef({ mounted: true, stream: null });
   const [cameraStream, setCameraStream] = useState(null);
   const [cameraError, setCameraError] = useState(null);
   const [cameraRequested, setCameraRequested] = useState(false);
-  const [previewScale, setPreviewScale] = useState(1);
-  const [previewWidth, setPreviewWidth] = useState(380);
   const stripElementRef = useRef(null);
+  const [storageWarning, setStorageWarning] = useState('');
   const restoredRef = useRef(false);
 
   /* Restore full draft (photos + edits) from IndexedDB — big enough for dataURLs */
   useEffect(() => {
     let live = true;
     loadDraft().then((d) => {
-      if (!live || !d) {
+      if (!live) return;
+      if (!d) {
         restoredRef.current = true;
         return;
       }
       try {
+        prevCapturedLength.current = d.captured?.length || 0;
         if (Array.isArray(d.captured)) setCaptured(d.captured.filter((x) => typeof x === 'string').slice(0, 6));
-        if (typeof d.mode === 'number' && [2, 3, 4, 6].includes(d.mode)) setMode(d.mode);
+        if (typeof d.mode === 'number' && [1, 2, 3, 4, 6].includes(d.mode)) setMode(d.mode);
         if (d.frameId) {
           const f = [...frames, ...customTemplates].find((x) => x.id === d.frameId);
           if (f) setFrame(f);
@@ -102,8 +92,8 @@ export default function App() {
           if (fl) setActiveFilter(fl);
         }
         if (d.timestamp?.time && d.timestamp?.date) setTimestamp(d.timestamp);
-        if (Array.isArray(d.decorations)) setDecorations(d.decorations.slice(0, 60));
-        if (Array.isArray(d.doodlePaths)) setDoodlePaths(d.doodlePaths.slice(0, 200));
+        if (Array.isArray(d.decorations)) setDecorations(d.decorations);
+        if (Array.isArray(d.doodlePaths)) setDoodlePaths(d.doodlePaths);
         if (d.fitSettings && typeof d.fitSettings === 'object') setFitSettings(d.fitSettings);
         if (d.photoScales && typeof d.photoScales === 'object') setPhotoScales(d.photoScales);
         if (d.stripBackground?.id) {
@@ -121,7 +111,7 @@ export default function App() {
         restoredRef.current = true;
       }
     }).catch(() => {
-      restoredRef.current = true;
+      if (live) setStorageWarning('Your saved draft could not be opened. Export this session before leaving.');
     });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -130,14 +120,25 @@ export default function App() {
   /* Autosave draft (debounced) — skipped until restore finishes so reload never wipes */
   useEffect(() => {
     if (!restoredRef.current) return;
-    const t = window.setTimeout(() => {
+    let saved = false;
+    const persist = () => {
+      if (saved) return;
+      saved = true;
       saveDraft({
         captured: captured.slice(0, 6), mode, frameId: frame.id, filterId: activeFilter.id, timestamp,
-        decorations: decorations.slice(0, 60), doodlePaths: doodlePaths.slice(0, 200),
+        decorations, doodlePaths,
         fitSettings, photoScales, stripBackground, accent, zoom, rotation, grain, lightLeak, vignette, doodleBrush,
-      }).catch(() => { /* storage full/blocked — keep working in memory */ });
-    }, 600);
-    return () => window.clearTimeout(t);
+      }).then(() => setStorageWarning('')).catch(() => setStorageWarning('Draft could not be saved. Check device storage or download your strip before leaving.'));
+    };
+    const t = window.setTimeout(persist, 600);
+    const onVisibility = () => { if (document.hidden) persist(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', persist);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', persist);
+    };
   }, [captured, mode, frame.id, activeFilter.id, timestamp, decorations, doodlePaths, fitSettings, photoScales, stripBackground, accent, zoom, rotation, grain, lightLeak, vignette, doodleBrush]);
 
   /* Warn only during active shooting/export — not on ordinary edits */
@@ -156,8 +157,18 @@ export default function App() {
     if (cameraRequested) return;
     setCameraRequested(true);
     setCameraError(null);
-    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError('Camera access is unavailable here. Open the booth over HTTPS or import photos.');
+      setCameraRequested(false);
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
       .then((stream) => {
+        if (!cameraOwner.current.mounted) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        cameraOwner.current.stream = stream;
         setCameraStream(stream);
       })
       .catch((err) => {
@@ -187,11 +198,11 @@ export default function App() {
 
   /* Stop camera on full app unmount only — never on booth page switch */
   useEffect(() => {
+    const owner = cameraOwner.current;
+    owner.mounted = true;
     return () => {
-      setCameraStream((prev) => {
-        try { prev?.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
-        return prev;
-      });
+      owner.mounted = false;
+      owner.stream?.getTracks().forEach(track => track.stop());
     };
   }, []);
 
@@ -241,8 +252,9 @@ export default function App() {
       if (!ok) return;
       setCaptured((prev) => prev.slice(0, nextMode));
     }
+    if (frame.type === 'custom' && frame.slots !== nextMode) setFrame(frames[0]);
     setMode(nextMode);
-  }, [captured.length, mode]);
+  }, [captured.length, mode, frame]);
 
   const nextTrack = useCallback(() => {
     setTrackIndex((prev) => (prev + 1) % ASSETS.playlist.length);
@@ -261,7 +273,13 @@ export default function App() {
 
   const onStartBooth = useCallback(() => {
     setBoothOpen(true);
-    document.querySelector('#booth')?.scrollIntoView({ behavior: 'smooth' });
+    // Small delay lets the booth DOM render before scrolling; target the camera
+    // stage so mobile users land directly on the live viewfinder, not the
+    // strip-length buttons above it.
+    requestAnimationFrame(() => {
+      const target = document.querySelector('.camera-stage') || document.querySelector('#booth');
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
   }, []);
 
   const [shuffleUndo, setShuffleUndo] = useState(null);
@@ -298,6 +316,20 @@ export default function App() {
     setShuffleUndo(null);
   }, [shuffleUndo]);
 
+  const navigate = useCallback((page) => {
+    const target = import.meta.env.BASE_URL + (page === 'editor' ? '?page=editor' : '');
+    if (location.pathname + location.search + location.hash !== target) history.pushState(null, '', target);
+    setCurrentPage(page);
+    window.scrollTo(0, 0);
+  }, []);
+
+  useEffect(() => {
+    if (readPage() === 'editor' && location.hash === '#editor') history.replaceState(null, '', import.meta.env.BASE_URL + '?page=editor');
+    const sync = () => setCurrentPage(readPage());
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
   const prevCapturedLength = useRef(0);
   useEffect(() => {
     const wasGrowing = captured.length > prevCapturedLength.current;
@@ -305,65 +337,13 @@ export default function App() {
     prevCapturedLength.current = captured.length;
 
     if (isFull && wasGrowing && currentPage === 'capture') {
-      setCurrentPage('editor');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      navigate('editor');
     }
-  }, [captured.length, mode, currentPage]);
+  }, [captured.length, mode, currentPage, navigate]);
 
-  /* Sync URL hash with currentPage for browser back/forward support */
-  useEffect(() => {
-    const newHash = currentPage === 'editor' ? '#editor' : '#capture';
-    if (window.location.hash !== newHash) {
-      // replaceState avoids trapping Back between capture<->editor
-      window.history.replaceState(null, '', newHash);
-    }
-  }, [currentPage]);
-
-  /* Handle browser back/forward navigation + manual hash edits */
-  useEffect(() => {
-    const handleNav = () => {
-      if (!isValidRoute()) {
-        setCurrentPage('404');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
-      }
-      const hash = window.location.hash.replace('#', '');
-      setCurrentPage(hash === 'editor' ? 'editor' : 'capture');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
-    const handlePopState = () => handleNav();
-    const handleHashChange = () => handleNav();
-    window.addEventListener('popstate', handlePopState);
-    window.addEventListener('hashchange', handleHashChange);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-      window.removeEventListener('hashchange', handleHashChange);
-    };
-  }, []);
-
-  // Also check on mount for invalid pathname (direct navigation)
-  useEffect(() => {
-    if (!isValidRoute()) setCurrentPage('404');
-  }, []);
-
-  const goToEditor = useCallback(() => {
-    setCurrentPage('editor');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
-
-  const goToCapture = useCallback(() => {
-    if (window.location.pathname !== (import.meta.env.BASE_URL || '/')) {
-      window.history.pushState(null, '', import.meta.env.BASE_URL || '/');
-    }
-    setCurrentPage('capture');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
-
-  const goToHome = useCallback(() => {
-    window.history.pushState(null, '', import.meta.env.BASE_URL || '/');
-    setCurrentPage('capture');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  const goToEditor = useCallback(() => navigate('editor'), [navigate]);
+  const goToCapture = useCallback(() => navigate('capture'), [navigate]);
+  const goToHome = goToCapture;
 
   /* ─── Studio Mode state ─── */
   const [isStudioOpen, setStudioOpen] = useState(false);
@@ -388,13 +368,13 @@ export default function App() {
     setCaptured(photoList);
     setTimestamp(getFormattedTimestamp());
     setStudioOpen(false);
-    setCurrentPage('editor');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [captured.length]);
+    navigate('editor');
+  }, [captured.length, navigate]);
 
   return (
     <main>
       <AmbientLayers />
+      {storageWarning && <div role="alert" className="draft-warning">{storageWarning}</div>}
       <SiteChrome
         audioOn={audioOn}
         toggleAudio={toggleAudio}
@@ -402,9 +382,10 @@ export default function App() {
         currentPage={currentPage}
         capturedCount={captured.length}
         onGoToEditor={goToEditor}
-        onStudioOpen={openStudio}
+        onGoHome={goToHome}
+        onStudioOpen={studioEnabled ? openStudio : undefined}
       />
-      {isStudioOpen && (
+      {StudioMode && isStudioOpen && (
         <Suspense fallback={<div className="studio-loading">Loading Studio…</div>}>
           <StudioMode isOpen={isStudioOpen} onClose={closeStudio} onCaptureComplete={handleStudioCapture} />
         </Suspense>
@@ -529,7 +510,7 @@ export default function App() {
                 </div>
               ) : (
               <>
-              <div className="editor-strip-col">
+              <div id="strip-preview" className="editor-strip-col">
                 <div className="editor-strip-canvas">
                   {!stripComplete && (
                     <p role="status" style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#8e104d', background: '#ffe0ed', borderRadius: 12, padding: '8px 12px', margin: '0 0 12px' }}>
@@ -557,8 +538,6 @@ export default function App() {
                     setPhotoScales={setPhotoScales}
                     timestamp={timestamp}
                     stripBackground={stripBackground}
-                    setPreviewScale={setPreviewScale}
-                    setPreviewWidth={setPreviewWidth}
                     stripElementRef={stripElementRef}
                   />
                 </div>
@@ -626,47 +605,19 @@ export default function App() {
                   />
                 </div>
 
-                <div className="editor-controls-card editor-export-card">
+                <div id="downloads" className="editor-controls-card editor-export-card">
                   <div className="paper-note">All set! <Sparkles size={16} /></div>
                   <p>Export your memory</p>
                   <MemoryLab
                     frame={frame}
                     photos={stripPhotos}
                     filter={selectedFilter}
-                    accent={accent}
-                    decorations={decorations}
-                    setDecorations={setDecorations}
-                    activeDecoId={activeDecoId}
-                    setActiveDecoId={setActiveDecoId}
-                    doodlePaths={doodlePaths}
-                    setDoodlePaths={setDoodlePaths}
-                    doodleBrush={doodleBrush}
-                    setDoodleBrush={setDoodleBrush}
                     developing={developing}
                     setDeveloping={setDeveloping}
-                    zoom={zoom}
-                    setZoom={setZoom}
-                    rotation={rotation}
-                    setRotation={setRotation}
-                    vignette={vignette}
-                    stripTab={stripTab}
-                    setStripTab={setStripTab}
-                    accentColor={accent}
-                    captured={captured}
-                    fitSettings={fitSettings}
-                    setFitSettings={setFitSettings}
-                    photoScales={photoScales}
-                    setPhotoScales={setPhotoScales}
-                    timestamp={timestamp}
                     mode={mode}
-                    onShuffle={handleShuffle}
                     resultImage={resultImage}
                     setResultImage={setResultImage}
-                    stripBackground={stripBackground}
-                    previewScale={previewScale}
-                    previewWidth={previewWidth}
                     stripElementRef={stripElementRef}
-                    exportOnly
                   />
                 </div>
               </div>

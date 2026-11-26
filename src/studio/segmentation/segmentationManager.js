@@ -7,7 +7,7 @@
  * - Recurrent temporal smoothing (video-matting style): history blends with current
  *   frame so edges don't flicker, movement stays responsive.
  * - Zero per-frame allocation: cached 2d contexts, reused ImageData + Float32 buffers.
- * - Pluggable backend: 'mediapipe' today, optional 'rvm-onnx' if VITE_RVM_MODEL_URL set.
+
  *
  * Public API is backwards compatible:
  *   init(), processParticipant(peerId, video, count), processHighQuality(),
@@ -45,8 +45,8 @@ class SegmentationManager {
     this.tier = detectDeviceTier();
     this.config = getTierConfig(this.tier);
     this._segDurEMA = 0;
-    this._rvmSession = null;
-    this._rvmFailed = false;
+
+
   }
 
   /** Allow StudioRoom auto-degrade to drop a tier at runtime. */
@@ -79,42 +79,12 @@ class SegmentationManager {
   }
 
   async init() {
-    if (this.isReady && (this.segmenter || this._rvmSession)) return true;
+    if (this.isReady && this.segmenter) return true;
     if (this.initPromise) return this.initPromise;
     if (this._retryCount >= 3) return false;
 
-    // Optional next-gen backend: Robust Video Matting via ONNX Runtime Web.
-    // Enabled only when VITE_RVM_MODEL_URL is configured; otherwise MediaPipe.
-    const rvmUrl = import.meta.env?.VITE_RVM_MODEL_URL;
-    if (rvmUrl && !this._rvmFailed) {
-      this.initPromise = this._initRvm(rvmUrl);
-      return this.initPromise;
-    }
-
     this.initPromise = this._initMediapipe();
     return this.initPromise;
-  }
-
-  async _initRvm(modelUrl) {
-    try {
-      // Kept out of the main bundle: specifier built at runtime so Rollup
-      // cannot statically resolve it. Only fetched when VITE_RVM_MODEL_URL set.
-      const ortSpecifier = ['onnxruntime', 'web'].join('-');
-      const ort = await import(/* @vite-ignore */ ortSpecifier);
-      const session = await ort.InferenceSession.create(modelUrl, {
-        executionProviders: ['webnn', 'webgpu', 'wasm'],
-      });
-      this._rvmSession = session;
-      this.backend = 'rvm-onnx';
-      this.isReady = true;
-      this.initFailed = false;
-      return true;
-    } catch (err) {
-      console.warn('RVM backend unavailable, falling back to MediaPipe:', err);
-      this._rvmFailed = true;
-      this.initPromise = null;
-      return this._initMediapipe();
-    }
   }
 
   async _initMediapipe() {
@@ -270,12 +240,8 @@ class SegmentationManager {
     const intervalMs = this.getIntervalForCount(totalActiveCount);
     const shouldSegment = !entry.hasMask || now - entry.lastSegmentTime >= intervalMs;
 
-    if (shouldSegment && this.isReady) {
-      if (this.backend === 'rvm-onnx' && this._rvmSession) {
-        this._segmentRvm(entry, videoElement, now);
-      } else if (this.segmenter) {
-        this._segmentMediapipe(entry, videoElement, now);
-      }
+    if (shouldSegment && this.isReady && this.segmenter) {
+      this._segmentMediapipe(entry, videoElement, now);
     }
 
     // Cheap per-frame step: re-cut from cached mask + interpolated bounds.
@@ -408,85 +374,6 @@ class SegmentationManager {
   }
 
   /**
-   * Optional RVM-ONNX path (temporal video matting). Only active when
-   * VITE_RVM_MODEL_URL is set. Keeps recurrence state per participant.
-   * Falls back to MediaPipe on any error.
-   */
-  async _segmentRvm(entry, videoElement, now) {
-    // Synchronous preview continues on last mask; run async inference off-band.
-    if (entry._rvmRunning) return;
-    entry._rvmRunning = true;
-    try {
-      const ortSpecifier = ['onnxruntime', 'web'].join('-');
-      const ort = await import(/* @vite-ignore */ ortSpecifier);
-      if (!this._drawSegInput(entry, videoElement)) return;
-      const s = this.config.segInputSize;
-      const img = entry.segCtx.getImageData(0, 0, s, s);
-      const input = new Float32Array(1 * 3 * s * s);
-      // Normalize RGB 0..1, CHW layout expected by RVM
-      const d = img.data;
-      const plane = s * s;
-      for (let i = 0; i < plane; i++) {
-        input[i] = d[i * 4] / 255;
-        input[plane + i] = d[i * 4 + 1] / 255;
-        input[2 * plane + i] = d[i * 4 + 2] / 255;
-      }
-      const feeds = {
-        src: new ort.Tensor('float32', input, [1, 3, s, s]),
-      };
-      // Recurrence tensors (zero-init first frame)
-      for (const k of ['r1', 'r2', 'r3', 'r4']) {
-        if (!entry[`_rvm_${k}`]) {
-          const sizes = { r1: [1, 16, s / 4, s / 4], r2: [1, 32, s / 8, s / 8], r3: [1, 64, s / 16, s / 16], r4: [1, 128, s / 32, s / 32] };
-          const sz = sizes[k];
-          const n = sz.reduce((a, b) => a * b, 1);
-          entry[`_rvm_${k}`] = new ort.Tensor('float32', new Float32Array(n), sz);
-        }
-        feeds[k] = entry[`_rvm_${k}`];
-      }
-      const out = await this._rvmSession.run(feeds);
-      // out.pha = [1,1,H,W] alpha matte; reuse as mask
-      const pha = out.pha;
-      const w = pha.dims[3], h = pha.dims[2];
-      const alpha = pha.data;
-      if (entry.maskCanvas.width !== w || entry.maskCanvas.height !== h) {
-        entry.maskCanvas.width = w;
-        entry.maskCanvas.height = h;
-        entry.maskCtx = entry.maskCanvas.getContext('2d');
-        entry.maskImageData = null;
-      }
-      if (!entry.maskImageData || entry.maskImageData.width !== w) {
-        entry.maskImageData = entry.maskCtx.createImageData(w, h);
-      }
-      const px = entry.maskImageData.data;
-      for (let i = 0; i < alpha.length; i++) {
-        const a = Math.max(0, Math.min(1, alpha[i]));
-        px[i * 4] = 255; px[i * 4 + 1] = 255; px[i * 4 + 2] = 255;
-        px[i * 4 + 3] = (a * 255) | 0;
-      }
-      entry.maskCtx.putImageData(entry.maskImageData, 0, 0);
-      for (const k of ['r1', 'r2', 'r3', 'r4']) {
-        if (out[k]) entry[`_rvm_${k}`] = out[k];
-      }
-      // RVM mask covers the square cover-fit input: keep boxes wide-open so
-      // the cutout never clips shoulders while bounds tracking catches up.
-      if (!entry.segBounds) {
-        entry.segBounds = { normX: 0.05, normY: 0.0, normWidth: 0.9, normHeight: 1.0, detected: true };
-      }
-      if (!entry.smoothedBounds?.detected) {
-        entry.smoothedBounds = { ...DEFAULT_BOUNDS, detected: true };
-      }
-      entry.hasMask = true;
-      entry.lastSegmentTime = now;
-      entry.status = 'ready';
-    } catch (err) {
-      console.warn('RVM inference failed, staying on last mask:', err?.message || err);
-    } finally {
-      entry._rvmRunning = false;
-    }
-  }
-
-  /**
    * Synchronous capture pass: forces one fresh high-quality AI run,
    * then cuts at full smoothing quality for the final photo.
    */
@@ -528,7 +415,7 @@ class SegmentationManager {
       try { this.segmenter.close(); } catch {}
       this.segmenter = null;
     }
-    this._rvmSession = null;
+
     this.isReady = false;
     this.initPromise = null;
     this.initFailed = false;
