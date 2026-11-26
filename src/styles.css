@@ -2635,6 +2635,22 @@ main {
   color: #111;
 }
 
+/* Clear All button in the doodle panel — visually distinct from pen swatches */
+.doodle-clear-btn,
+.doodle-clear-btn:nth-child(even),
+.doodle-clear-btn:nth-child(3n) {
+  background: linear-gradient(135deg, #ff4444, #cc2233) !important;
+  color: #fff !important;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 12px rgba(255, 50, 50, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.doodle-clear-btn:hover {
+  transform: translateY(-3px) scale(1.04) !important;
+  box-shadow: 0 8px 20px rgba(255, 50, 50, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+}
+
 .image-sticker-chip,
 .image-sticker-chip:nth-child(even),
 .image-sticker-chip:nth-child(3n) {

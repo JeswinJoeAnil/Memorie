@@ -237,7 +237,7 @@ function StripEditorComponent(props) {
               <button type="button" className={`sticker-chip ${doodleBrush?.color === '#00ffcc' ? 'active' : ''}`} onClick={() => setDoodleBrush?.({ color: '#00ffcc', size: 4, shadow: 8 })}>Neon Glow</button>
               <button type="button" className={`sticker-chip ${doodleBrush?.color === '#ffffff' ? 'active' : ''}`} onClick={() => setDoodleBrush?.({ color: '#ffffff', size: 3, shadow: 0 })}>White Pen</button>
               <button type="button" className={`sticker-chip ${doodleBrush?.color === '#000000' ? 'active' : ''}`} onClick={() => setDoodleBrush?.({ color: '#000000', size: 8, shadow: 0 })}>Black Marker</button>
-              <button type="button" className="sticker-chip" onClick={() => setDoodlePaths?.([])}>Clear All</button>
+              <button type="button" className="sticker-chip doodle-clear-btn" onClick={() => setDoodlePaths?.([])}>✕ Clear All</button>
             </div>
           </div>
         )}
