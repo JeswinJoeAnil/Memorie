@@ -3,15 +3,17 @@ import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Download,
+  Film,
   Grid2X2,
   Image as ImageIcon,
 } from 'lucide-react';
 import { renderExport } from '../utils/exportCanvas.js';
+import { exportStripAsGif } from '../utils/gifExport.js';
 import { DevelopingOverlay } from './DevelopingOverlay.jsx';
 
 function MemoryLabComponent(props) {
   const { photos, filter, frame, developing, setDeveloping, mode,
-    resultImage, setResultImage, stripElementRef } = props;
+    resultImage, setResultImage, stripElementRef, capturedAnimations } = props;
   const busy = useRef(false);
   const mounted = useRef(false);
   const resultUrl = useRef(null);
@@ -77,6 +79,46 @@ function MemoryLabComponent(props) {
     }
   }, [photos, filter, frame.id, setDeveloping, setResultImage, stripElementRef]);
 
+  const exportGif = useCallback(async () => {
+    if (!Array.isArray(photos) || photos.length === 0) {
+      setExportStatus('Capture photos first — nothing to download yet.');
+      return;
+    }
+    if (busy.current) return;
+    busy.current = true;
+    setDeveloping('gif');
+    setExportStatus('Recording GIF frames...');
+    try {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      const blob = await exportStripAsGif({
+        stripElement: stripElementRef?.current || null,
+        photos,
+        animations: capturedAnimations || {},
+        filter,
+        onProgress: (p) => setExportStatus(`Encoding GIF... ${Math.round(p * 100)}%`),
+      });
+      if (!mounted.current) return;
+      const url = URL.createObjectURL(blob);
+      if (resultUrl.current) URL.revokeObjectURL(resultUrl.current);
+      resultUrl.current = url;
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T-]/g, '');
+      const link = document.createElement('a');
+      link.download = `memorie-${stamp}-${frame.id}.gif`;
+      link.href = url;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setResultImage(url);
+      setExportStatus('GIF ready — download started. Tap preview to save on mobile.');
+    } catch (err) {
+      console.error('GIF export failed:', err);
+      setExportStatus('GIF export failed. Try again.');
+    } finally {
+      busy.current = false;
+      setDeveloping(null);
+    }
+  }, [photos, capturedAnimations, filter, frame.id, setDeveloping, setResultImage, stripElementRef]);
+
   const closeResult = useCallback(() => {
     if (resultUrl.current) URL.revokeObjectURL(resultUrl.current);
     resultUrl.current = null;
@@ -87,11 +129,15 @@ function MemoryLabComponent(props) {
   const photoCount = Array.isArray(photos) ? photos.length : 0;
   const hasPhotos = photoCount > 0;
   const incomplete = hasPhotos && typeof mode === 'number' && photoCount < mode;
+  const hasAnimations = Object.keys(capturedAnimations || {}).length > 0;
   return (
     <>
       <div className="export-grid">
         <button type="button" onClick={() => exportCanvas('png')} disabled={!hasPhotos || Boolean(developing)} title={hasPhotos ? 'Download full strip as PNG (best quality)' : 'Capture photos first'}><ImageIcon size={18} /> Download <span>PNG · best</span><Download size={16} /></button>
         <button type="button" onClick={() => exportCanvas('jpg')} disabled={!hasPhotos || Boolean(developing)} title={hasPhotos ? 'Download full strip as JPG (smaller file)' : 'Capture photos first'}><Grid2X2 size={18} /> Download <span>JPG · small</span><Download size={16} /></button>
+        {hasAnimations && (
+          <button type="button" className="gif-export-btn" onClick={exportGif} disabled={!hasPhotos || Boolean(developing)} title="Download full strip as animated GIF"><Film size={18} /> Download <span>GIF · animated</span><Download size={16} /></button>
+        )}
       </div>
       {!hasPhotos && <p className="export-status" role="status">Capture photos first — we never export sample photos.</p>}
       {incomplete && <p className="export-status" role="status">Incomplete strip ({photoCount}/{mode}) — download includes only your photos.</p>}

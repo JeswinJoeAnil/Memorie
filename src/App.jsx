@@ -61,6 +61,8 @@ export default function App() {
   const [editorTab, setEditorTab] = useState('filters');
   const [stripTab, setStripTab] = useState('text');
   const [mirrorOn, setMirrorOn] = useState(true);
+  const [gifMode, setGifMode] = useState(null);
+  const [capturedAnimations, setCapturedAnimations] = useState({});
   const [currentPage, setCurrentPage] = useState(readPage);
   const cameraOwner = useRef({ mounted: true, stream: null });
   const [cameraStream, setCameraStream] = useState(null);
@@ -251,6 +253,14 @@ export default function App() {
       );
       if (!ok) return;
       setCaptured((prev) => prev.slice(0, nextMode));
+      // Trim animation entries for removed slots
+      setCapturedAnimations((prev) => {
+        const next = {};
+        for (const [k, v] of Object.entries(prev)) {
+          if (Number(k) < nextMode) next[k] = v;
+        }
+        return next;
+      });
     }
     if (frame.type === 'custom' && frame.slots !== nextMode) setFrame(frames[0]);
     setMode(nextMode);
@@ -446,6 +456,10 @@ export default function App() {
                 onRequestCamera={requestCamera}
                 onCameraExpired={handleCameraExpired}
                 cameraError={cameraError}
+                gifMode={gifMode}
+                setGifMode={setGifMode}
+                capturedAnimations={capturedAnimations}
+                setCapturedAnimations={setCapturedAnimations}
               />
               <CameraEditor
                 activeFilter={activeFilter}
@@ -539,6 +553,7 @@ export default function App() {
                     timestamp={timestamp}
                     stripBackground={stripBackground}
                     stripElementRef={stripElementRef}
+                    capturedAnimations={capturedAnimations}
                   />
                 </div>
               </div>
@@ -618,6 +633,7 @@ export default function App() {
                     resultImage={resultImage}
                     setResultImage={setResultImage}
                     stripElementRef={stripElementRef}
+                    capturedAnimations={capturedAnimations}
                   />
                 </div>
               </div>

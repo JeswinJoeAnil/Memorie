@@ -2365,6 +2365,25 @@ main {
   color: #88114f !important;
 }
 
+/* GIF/Boomerang mode button — distinctive accent when active */
+.gif-mode-btn.opt-active {
+  background: linear-gradient(135deg, #00e676, #00bcd4) !important;
+  color: #004d40 !important;
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.4);
+}
+
+/* GIF export button in MemoryLab */
+.gif-export-btn {
+  background: linear-gradient(135deg, #00e676, #00bcd4) !important;
+  color: #004d40 !important;
+  border: none;
+  font-weight: 700;
+}
+.gif-export-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .editor-tab-content {
   margin-top: 10px;
   flex: 1;

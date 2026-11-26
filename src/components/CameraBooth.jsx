@@ -8,10 +8,13 @@ import {
   Flashlight,
   Grid2X2,
   Pause,
+  Play,
   RefreshCcw,
+  Repeat,
   RotateCw,
   Sparkles,
   Upload,
+  Video,
   Zap,
 } from 'lucide-react';
 import { assetPhotos } from '../constants/assets.js';
@@ -41,6 +44,10 @@ function CameraBoothComponent({
   onRequestCamera,
   onCameraExpired,
   cameraError,
+  gifMode,
+  setGifMode,
+  capturedAnimations,
+  setCapturedAnimations,
 }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -105,13 +112,47 @@ function CameraBoothComponent({
       updateTimestamp();
     }
 
+    /* ── GIF / Boomerang capture: grab multiple frames ── */
+    if (gifMode) {
+      const GIF_FRAMES = 16;
+      const FRAME_INTERVAL = 90; // ms between frames
+      const frames = [];
+      for (let i = 0; i < GIF_FRAMES; i++) {
+        let dataUrl;
+        try { dataUrl = await encodeVideoFrameToStrip(canvas, video, mirrorOn); }
+        catch { break; }
+        frames.push(dataUrl);
+        if (i < GIF_FRAMES - 1) {
+          await new Promise(r => setTimeout(r, FRAME_INTERVAL));
+        }
+      }
+      if (frames.length === 0) return currentCaptured;
+
+      // For boomerang, append reversed frames (excluding first and last to avoid stutter)
+      const finalFrames = gifMode === 'boomerang'
+        ? [...frames, ...frames.slice(1, -1).reverse()]
+        : frames;
+
+      // Store the animation data for this slot
+      const slotIndex = currentCaptured.length;
+      setCapturedAnimations(prev => ({
+        ...prev,
+        [slotIndex]: { frames: finalFrames, boomerang: gifMode === 'boomerang' },
+      }));
+
+      fireFlash();
+      if (onCapture) onCapture();
+      // Use first frame as hero/thumbnail in the captured array
+      return [...currentCaptured, frames[0]];
+    }
+
     let dataUrl;
     try { dataUrl = await encodeVideoFrameToStrip(canvas, video, mirrorOn); }
     catch { return currentCaptured; }
     fireFlash();
     if (onCapture) onCapture();
     return [...currentCaptured, dataUrl];
-  }, [fireFlash, mirrorOn, onCapture, streaming, updateTimestamp]);
+  }, [fireFlash, gifMode, mirrorOn, onCapture, setCapturedAnimations, streaming, updateTimestamp]);
 
   const handleFileUpload = useCallback((e) => {
     const input = e.target;
@@ -340,7 +381,23 @@ function CameraBoothComponent({
             >
               <BatteryMedium size={18} /> Timer <span>{timer === 0 ? 'off' : `${timer}s`}</span>
             </button>
-            <button type="button" onClick={() => { if (!shooting) setCaptured((list) => list.slice(0, -1)); setStatusMessage('Removed the latest photo.'); }} disabled={shooting || captured.length === 0}><RotateCw size={18} /> Retake <span>{captured.length}</span></button>
+            <button
+              type="button"
+              className={gifMode ? 'opt-active gif-mode-btn' : 'gif-mode-btn'}
+              onClick={() => {
+                const modes = [null, 'gif', 'boomerang'];
+                const next = modes[(modes.indexOf(gifMode) + 1) % modes.length];
+                setGifMode(next);
+                if (!next) setStatusMessage('GIF mode off — capturing photos.');
+                else if (next === 'gif') setStatusMessage('GIF mode on — captures a looping clip.');
+                else setStatusMessage('Boomerang mode — captures a bouncing clip.');
+              }}
+            >
+              {gifMode === 'boomerang' ? <Repeat size={18} /> : <Video size={18} />}
+              {!gifMode ? 'GIF' : gifMode === 'gif' ? 'GIF' : 'Boomerang'}
+              <span>{gifMode || 'off'}</span>
+            </button>
+            <button type="button" onClick={() => { if (!shooting) { setCaptured((list) => list.slice(0, -1)); setCapturedAnimations(prev => { const next = { ...prev }; delete next[captured.length - 1]; return next; }); setStatusMessage('Removed the latest photo.'); } }} disabled={shooting || captured.length === 0}><RotateCw size={18} /> Retake <span>{captured.length}</span></button>
           </div>
         </div>
         {(statusMessage || error || cameraError) && (
@@ -374,7 +431,7 @@ function CameraBoothComponent({
                 </div>
               </div>
               <div className="secondary-actions" style={{ display: 'flex', gap: '8px' }}>
-                <button type="button" className="pill-button" onClick={() => { if (captured.length === 0) return; const ok = window.confirm(`Clear all ${captured.length} photos? This cannot be undone.`); if (!ok) return; setCaptured([]); setStatusMessage('Roll cleared.'); }} disabled={shooting || captured.length === 0}>Clear roll</button>
+                <button type="button" className="pill-button" onClick={() => { if (captured.length === 0) return; const ok = window.confirm(`Clear all ${captured.length} photos? This cannot be undone.`); if (!ok) return; setCaptured([]); setCapturedAnimations({}); setStatusMessage('Roll cleared.'); }} disabled={shooting || captured.length === 0}>Clear roll</button>
                 <button type="button" className="pill-button import-btn" onClick={() => document.getElementById('booth-file-upload').click()} aria-controls="booth-file-upload">
                   <Upload size={16} /> Import
                 </button>

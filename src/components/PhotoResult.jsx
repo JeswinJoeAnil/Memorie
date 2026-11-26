@@ -1,5 +1,6 @@
 import { TemplateSlot } from './TemplateSlot.jsx';
 import { GradedPhoto } from './GradedPhoto.jsx';
+import { AnimatedSlot } from './AnimatedSlot.jsx';
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { asset } from '../constants/assets.js';
 import { DraggableDeco } from './DraggableDeco.jsx';
@@ -28,6 +29,7 @@ function PhotoResultComponent({
   setPhotoScales,
   stripBackground,
   stripElementRef,
+  capturedAnimations,
 }) {
   const wrapperRef = useRef(null);
   const stripRef = useRef(null);
@@ -104,20 +106,32 @@ function PhotoResultComponent({
             const photo = photos[index];
             if (!photo) return null;
             const pScale = photoScales?.[index] || { x: 1, y: 1 };
+            const anim = capturedAnimations?.[index];
+            const sharedStyle = {
+              width: '100%',
+              height: '100%',
+              objectFit: fitSettings?.[index] === 'contain' ? 'contain' : 'cover',
+              transform: `scale(${(pScale.x ?? 1) * zoom}, ${(pScale.y ?? 1) * zoom}) rotate(${rotation}deg)`,
+              transformOrigin: 'center center',
+            };
             return (
               <TemplateSlot key={index} slot={slot}>
-                <GradedPhoto filter={filter} index={index}
-                  src={photo}
-                  alt={`Photo ${index + 1} in the strip`}
-                  tabIndex={0}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: fitSettings?.[index] === 'contain' ? 'contain' : 'cover',
-                    transform: `scale(${(pScale.x ?? 1) * zoom}, ${(pScale.y ?? 1) * zoom}) rotate(${rotation}deg)`,
-                    transformOrigin: 'center center',
-                  }}
-                />
+                {anim ? (
+                  <AnimatedSlot
+                    frames={anim.frames}
+                    index={index}
+                    alt={`Animated photo ${index + 1} in the strip`}
+                    tabIndex={0}
+                    style={sharedStyle}
+                  />
+                ) : (
+                  <GradedPhoto filter={filter} index={index}
+                    src={photo}
+                    alt={`Photo ${index + 1} in the strip`}
+                    tabIndex={0}
+                    style={sharedStyle}
+                  />
+                )}
               </TemplateSlot>
             );
           })}
@@ -177,21 +191,42 @@ function PhotoResultComponent({
           </div>
         )}
         <div className="photo-slots">
-        {(photos || []).map((photo, index) => (
-          <DraggablePhoto
-            key={`photo-${index}`}
-            photo={photo}
-            filter={filter}
-            index={index}
-            zoom={zoom}
-            rotation={rotation}
-            fitMode={fitSettings?.[index]}
-            scale={photoScales?.[index] || { x: 1, y: 1 }}
-            onScale={(newScale) => setPhotoScales?.(prev => ({ ...prev, [index]: { ...prev[index], ...newScale } }))}
-            isActive={activeDecoId === `photo-${index}`}
-            onPointerDown={() => setActiveDecoId?.(`photo-${index}`)}
-          />
-        ))}
+        {(photos || []).map((photo, index) => {
+          const anim = capturedAnimations?.[index];
+          if (anim) {
+            return (
+              <div key={`photo-${index}`} className="photo-slot-frame">
+                <AnimatedSlot
+                  frames={anim.frames}
+                  index={index}
+                  alt={`Animated photo ${index + 1}`}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: fitSettings?.[index] === 'contain' ? 'contain' : 'cover',
+                    transform: `scale(${(photoScales?.[index]?.x ?? 1) * zoom}, ${(photoScales?.[index]?.y ?? 1) * zoom}) rotate(${rotation}deg)`,
+                    transformOrigin: 'center center',
+                  }}
+                />
+              </div>
+            );
+          }
+          return (
+            <DraggablePhoto
+              key={`photo-${index}`}
+              photo={photo}
+              filter={filter}
+              index={index}
+              zoom={zoom}
+              rotation={rotation}
+              fitMode={fitSettings?.[index]}
+              scale={photoScales?.[index] || { x: 1, y: 1 }}
+              onScale={(newScale) => setPhotoScales?.(prev => ({ ...prev, [index]: { ...prev[index], ...newScale } }))}
+              isActive={activeDecoId === `photo-${index}`}
+              onPointerDown={() => setActiveDecoId?.(`photo-${index}`)}
+            />
+          );
+        })}
         </div>
 
         <DoodleCanvas stripTab={stripTab} doodlePaths={doodlePaths} setDoodlePaths={setDoodlePaths} doodleBrush={doodleBrush} previewWidth={previewW} />
