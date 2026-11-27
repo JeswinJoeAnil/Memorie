@@ -17,7 +17,7 @@ import { StripEditor } from './components/StripEditor.jsx';
 import { MemoryLab } from './components/MemoryLab.jsx';
 import { Footer } from './components/Footer.jsx';
 import { NotFound } from './components/NotFound.jsx';
-const studioEnabled = import.meta.env.VITE_ENABLE_STUDIO === 'true';
+const studioEnabled = import.meta.env.VITE_ENABLE_STUDIO !== 'false';
 const StudioMode = studioEnabled
   ? lazy(() => import('./components/Studio/StudioMode.jsx').then(module => ({ default: module.StudioMode })))
   : null;
