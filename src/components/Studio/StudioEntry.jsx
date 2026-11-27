@@ -1,7 +1,7 @@
 import React, { memo, useCallback, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, Copy, Sparkles, Users, X, Check } from 'lucide-react';
-import { isValidRoomCode, normalizeRoomCode } from '../../utils/roomCode.js';
+import { invitedRoomCode, isValidRoomCode, normalizeRoomCode } from '../../utils/roomCode.js';
 
 /**
  * StudioEntry — The Studio Mode entry point.
@@ -11,8 +11,8 @@ import { isValidRoomCode, normalizeRoomCode } from '../../utils/roomCode.js';
  * - JOIN A STUDIO (enter room code from a friend)
  */
 function StudioEntryComponent({ isOpen, onClose, onCreateRoom, onJoinRoom }) {
-  const [view, setView] = useState('choice'); /* choice | join */
-  const [joinCode, setJoinCode] = useState('');
+  const [view, setView] = useState(() => invitedRoomCode() ? 'join' : 'choice'); /* choice | join */
+  const [joinCode, setJoinCode] = useState(invitedRoomCode);
   const [joinError, setJoinError] = useState('');
   const [displayName, setDisplayName] = useState('');
 
@@ -70,7 +70,7 @@ function StudioEntryComponent({ isOpen, onClose, onCreateRoom, onJoinRoom }) {
             <X size={20} />
           </button>
 
-          <div className="studio-modal-header">
+          <div className="studio-modal-header studio-curtain-header">
             <div className="studio-brand-mark">
               <Sparkles size={16} />
               <span>MEMORIE STUDIO</span>
@@ -87,7 +87,8 @@ function StudioEntryComponent({ isOpen, onClose, onCreateRoom, onJoinRoom }) {
                 exit={{ opacity: 0, x: -20 }}
                 transition={{ duration: 0.2 }}
               >
-                <p className="studio-tagline">Take a photo together, even when you're apart.</p>
+                <h2 className="studio-editorial-title">The photo studio</h2>
+                <p className="studio-tagline">Share a set, strike a pose, and take home a strip together.</p>
 
                 <div className="studio-name-field">
                   <label htmlFor="studio-display-name">Your Name</label>
@@ -113,7 +114,7 @@ function StudioEntryComponent({ isOpen, onClose, onCreateRoom, onJoinRoom }) {
                     <div className="studio-action-icon"><Sparkles size={20} /></div>
                     <div className="studio-action-text">
                       <strong>Create a Studio</strong>
-                      <span>Start a new shared photo session</span>
+                      <span>Open a camera room and invite friends</span>
                     </div>
                   </motion.button>
 
@@ -127,7 +128,7 @@ function StudioEntryComponent({ isOpen, onClose, onCreateRoom, onJoinRoom }) {
                     <div className="studio-action-icon"><Users size={20} /></div>
                     <div className="studio-action-text">
                       <strong>Join a Studio</strong>
-                      <span>Enter a friend's studio code</span>
+                      <span>Use a six-character room code</span>
                     </div>
                   </motion.button>
                 </div>

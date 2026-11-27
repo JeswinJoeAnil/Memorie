@@ -1,0 +1,59 @@
+
+.studio-editorial-title { margin:0; color:#452335; font:normal clamp(2rem,5vw,3.1rem)/1.05 Georgia,serif; letter-spacing:-.055em; text-wrap:balance; }
+.studio-modal:has(.studio-curtain-header) { background:#fbf6ed; border-radius:18px; padding:0 26px 24px; max-height:92dvh; overflow:auto; }
+.studio-curtain-header { margin:0 -26px 22px; min-height:112px; display:flex; align-items:flex-end; padding:16px 24px; background:linear-gradient(0deg,#2e0f1e77,transparent),url('../../../assets/photos/wine-velvet.webp') center 40% / cover; }
+.studio-curtain-header .studio-brand-mark { color:#fff5e5; letter-spacing:.16em; }
+.studio-modal:has(.studio-curtain-header) .studio-modal-close { z-index:2; color:white; background:#391a28bb; }
+.studio-modal-body .studio-tagline { text-align:left; margin:0; }
+.studio-modal-body .studio-action-card { border-radius:12px; }
+.studio-proof-tools p { font-size:.95rem; line-height:1.5; margin:0; }
+.studio-invite { display:inline-flex; flex-wrap:wrap; gap:6px; align-items:center; justify-content:center; }
+.studio-invite input { max-width:180px; color:#24151b; background:#fff; }
+.studio-lobby-code-section .studio-invite { margin:0 8px 8px; }
+.studio-room.is-reviewing > :is(.studio-controls,.studio-viewport,.studio-bg-picker,.studio-quality-picker,.studio-shooting-badge) { display:none; }
+.studio-room.is-reviewing { overflow-y:auto; background:#2d1c25; }
+.studio-proof { margin:auto; padding:76px 18px 32px; width:min(850px,100%); display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:clamp(24px,5vw,60px); align-items:center; color:#fbf4e8; }
+.studio-proof-paper { display:grid; justify-items:center; }
+.studio-proof-paper > img { width:auto; max-width:100%; max-height:74dvh; box-shadow:0 12px 32px #0f091280; }
+.studio-proof-tools { display:grid; justify-items:start; gap:16px; }
+.studio-proof-tools .studio-editorial-title,.studio-proof-tools .studio-back-btn { color:#fff4e7; }
+.studio-proof-tools .studio-join-btn { display:inline-flex; gap:8px; align-items:center; justify-content:center; text-decoration:none; }
+.studio-proof-frames { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+.studio-proof-frames button { background:#f9efdf; color:#3e2433; border:0; border-radius:4px; padding:4px; font-size:.75rem; }
+.studio-proof-frames img { width:100%; aspect-ratio:16/9; object-fit:cover; }
+.studio-session-error { position:relative; z-index:12; background:#fff2df; color:#772839; padding:10px; margin-top:55px; }
+.studio-ready-count { color:#fff4e7; font-size:.8rem; }
+@media(max-width:600px) {
+  .studio-proof { grid-template-columns:1fr; gap:22px; }
+  .studio-proof-paper > img { max-height:48dvh; }
+  .studio-proof-tools { gap:12px; justify-items:center; text-align:center; }
+  .studio-room .studio-room-topbar { padding:8px; gap:4px; }
+  .studio-room-info .studio-invite button { padding:7px; font-size:.72rem; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .studio-flash { display:none; }
+  :is(.studio-overlay,.studio-fullscreen) * { animation-duration:.01ms !important; transition-duration:.01ms !important; }
+}
+
+.studio-feedback-note { margin:58px auto 0; color:#ffe2cf; font-size:.9rem; }
+.studio-retake-request { display:grid; gap:5px; font-size:.85rem; }
+.studio-retake-request select { padding:8px; color:#382530; background:#fff7e9; border-radius:6px; }
+
+.studio-controls { flex-wrap:wrap; gap:8px; justify-content:center; overflow:visible; }
+.studio-controls .studio-shutter-btn { order:-2; }
+.studio-controls .studio-bg-btn { padding:10px 14px; }
+.studio-setting-toggles { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+.studio-setting-toggles .studio-bg-btn { padding:7px 11px; }
+.studio-quality-panel,.studio-bg-picker { max-height:65dvh; overflow:auto; }
+.studio-room.is-reviewing > .studio-quality-panel { display:none; }
+@media(max-width:768px) {
+  .studio-room .studio-controls { flex-wrap:wrap; justify-content:center; overflow:visible; gap:6px; padding:6px 0 max(8px,env(safe-area-inset-bottom)); }
+  .studio-controls .studio-bg-btn { padding:8px 10px; font-size:.75rem; }
+  .studio-controls .studio-shutter-btn { width:52px; height:52px; }
+  .studio-room .studio-quality-panel,.studio-room .studio-bg-picker { bottom:150px; max-height:calc(100dvh - 215px); }
+}
+
+.studio-curtain-header ~ .studio-modal-body .studio-action-create .studio-action-icon { background:#784052; }
+.studio-curtain-header ~ .studio-modal-body .studio-action-join .studio-action-icon { background:#615569; }
+.studio-proof-tools .studio-join-btn { background:#f6e5c9; color:#432431; border:1px solid #8e686f; }
+.studio-proof-tools .studio-join-btn:hover { background:#fff4e1; }

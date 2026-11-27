@@ -20,6 +20,31 @@ import { getDefaultParticipantTransform } from './participantLayout.js';
 export const COMPOSITE_WIDTH = 1280;
 export const COMPOSITE_HEIGHT = 720;
 
+// Print camera windows directly when the room selects the split-frame layout.
+function drawWindows(ctx, participants, width, height) {
+  ctx.fillStyle = '#f5ebdd';
+  ctx.fillRect(0, 0, width, height);
+  const gap = Math.round(width * 0.016);
+  const columns = Math.min(2, Math.max(1, participants.length));
+  const rows = Math.max(1, Math.ceil(participants.length / columns));
+  const w = (width - gap * (columns + 1)) / columns;
+  const h = (height - gap * (rows + 1)) / rows;
+  participants.forEach(({ video, mirror }, i) => {
+    const x = gap + (i % columns) * (w + gap);
+    const y = gap + Math.floor(i / columns) * (h + gap);
+    ctx.fillStyle = '#412939';
+    ctx.fillRect(x, y, w, h);
+    if (!video?.videoWidth || video.readyState < 2) return;
+    const scale = Math.max(w / video.videoWidth, h / video.videoHeight);
+    const sw = w / scale, sh = h / scale;
+    ctx.save();
+    ctx.translate(mirror ? x + w : x, y);
+    if (mirror) ctx.scale(-1, 1);
+    ctx.drawImage(video, (video.videoWidth - sw) / 2, (video.videoHeight - sh) / 2, sw, sh, 0, 0, w, h);
+    ctx.restore();
+  });
+}
+
 // Pre-rendered soft shadow sprite (drawn once, stamped per person)
 let _shadowSprite = null;
 function getShadowSprite() {
@@ -66,276 +91,320 @@ export class StudioCompositor {
     // Cache contexts once — getContext() per frame forces state re-validation
     this._offCtx = this.offscreenCanvas.getContext('2d', { alpha: false, desynchronized: true });
     this._displayCtx = null;
-  }
-
-  setCanvas(canvas) {
-    this.canvas = canvas;
-    if (this.canvas) {
-      this.canvas.width = this.sceneW;
-      this.canvas.height = this.sceneH;
-    }
-    this._displayCtx = null;
-  }
-
-  /** Adaptive preview size; capture path is unaffected. */
-  setCompositeSize(w, h) {
-    const nw = Math.round(w), nh = Math.round(h);
-    if (nw === this.sceneW && nh === this.sceneH) return;
-    this.sceneW = nw;
-    this.sceneH = nh;
-    this.offscreenCanvas.width = nw;
-    this.offscreenCanvas.height = nh;
-    this._offCtx = this.offscreenCanvas.getContext('2d', { alpha: false, desynchronized: true });
-    if (this.canvas) {
-      this.canvas.width = nw;
-      this.canvas.height = nh;
-    }
-    this._displayCtx = null;
-  }
-
-  setQualityFlags({ enableGlow = true, enableShadows = true } = {}) {
-    this.enableGlow = enableGlow;
-    this.enableShadows = enableShadows;
+    this._fadeCanvas = null;
+    this._fadeCtx = null;
   }
 
   /**
-   * Draws a soft, elliptical contact shadow under the participant's feet.
-   * Uses a pre-rendered sprite: no per-frame gradient allocation.
+   * Draws a participant cutout onto ctx. When lifted away from the bottom frame
+   * edge (baselineY < 0.96), softly feathers the bottom 14% so a webcam torso chop
+   * blends smoothly into the backdrop instead of showing a sharp horizontal line.
    */
-  drawContactShadow(ctx, centerX, floorY, personWidth) {
-    const shadowW = Math.max(56, personWidth * 0.7);
-    const shadowH = shadowW * 0.22;
-    try {
-      ctx.drawImage(
-        getShadowSprite(),
-        Math.round(centerX - shadowW / 2),
-        Math.round(floorY - shadowH / 2),
-        Math.round(shadowW),
-        Math.round(shadowH)
-      );
-    } catch {}
-  }
-
-  /**
-   * Draws a placeholder silhouette while a participant's camera or model loads.
-   */
-  drawLoadingSilhouette(ctx, drawX, drawY, width, height) {
-    ctx.save();
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.20)';
-
-    // Head
-    ctx.beginPath();
-    ctx.ellipse(
-      drawX + width / 2,
-      drawY + height * 0.22,
-      width * 0.22,
-      width * 0.22,
-      0,
-      0,
-      Math.PI * 2
-    );
-    ctx.fill();
-
-    // Torso / Body
-    ctx.beginPath();
-    if (ctx.roundRect) {
-      ctx.roundRect(
-        drawX + width * 0.22,
-        drawY + height * 0.32,
-        width * 0.56,
-        height * 0.55,
-        12
-      );
-    } else {
-      ctx.rect(drawX + width * 0.22, drawY + height * 0.32, width * 0.56, height * 0.55);
-    }
-    ctx.fill();
-    ctx.restore();
-  }
-
-  isVideoPlayable(video) {
-    if (!video) return false;
-    if (video.paused) {
-      try {
-        const p = video.play();
-        if (p?.catch) p.catch(() => {});
-      } catch {}
-    }
-    return video.readyState >= 2 && video.videoWidth > 0;
-  }
-
-  /**
-   * Prepares normalized visual layers for all participants.
-   */
-  buildLayers(sceneParticipants, totalCount, isHQ = false, sceneW = this.sceneW, sceneH = this.sceneH) {
-    const count = Math.min(4, Math.max(1, totalCount || 1));
-    const layers = [];
-
-    sceneParticipants.slice(0, 4).forEach((part, joinIndex) => {
-      const transform =
-        part.transform ?? getDefaultParticipantTransform(joinIndex, count);
-
-      const hasVideo = this.isVideoPlayable(part.video);
-
-      let cutout = null;
-      let bounds = { normX: 0.15, normY: 0.05, normWidth: 0.7, normHeight: 0.9, detected: false };
-      let segStatus = 'loading';
-
-      if (hasVideo) {
-        const res = isHQ
-          ? segmentationManager.processHighQuality(part.peerId, part.video)
-          : segmentationManager.processParticipant(part.peerId, part.video, count);
-
-        cutout = res.cutout;
-        bounds = res.bounds || bounds;
-        segStatus = res.status;
-      }
-
-      const metrics = normalizePersonCutout({
-        cutoutCanvas: cutout,
-        bounds,
-        transform,
-        sceneWidth: sceneW,
-        sceneHeight: sceneH,
-        totalCount: count,
-      });
-
-      layers.push({
-        peerId: part.peerId,
-        name: part.name,
-        mirror: !!part.mirror,
-        cutout,
-        hasVideo,
-        video: part.video,
-        segStatus,
-        metrics,
-        zIndex: metrics.zIndex,
-      });
-    });
-
-    return layers.sort((a, b) => a.zIndex - b.zIndex);
-  }
-
-  /**
-   * Executes a single animation frame of the virtual photo studio.
-   * opts: { enableGlow, enableShadows } — defaults to instance flags.
-   */
-  renderFrame({ background, sceneParticipants, enableGlow, enableShadows }) {
-    if (!this.canvas) return;
-    const t0 = performance.now();
-    const ctx = this._offCtx;
-    if (!ctx) return;
-    const W = this.sceneW, H = this.sceneH;
-    const useGlow = enableGlow ?? this.enableGlow;
-    const useShadows = enableShadows ?? this.enableShadows;
-
-    // 1. Layer 0: Shared Background & Floor Environment (cached → 1 drawImage)
-    drawStudioBackground(ctx, background, W, H, { enableGlow: useGlow });
-
-    const activeCount = sceneParticipants.length;
-    const layers = this.buildLayers(sceneParticipants, activeCount, false, W, H);
-
-    // 2. Layer 1: Ground Contact Shadows (sprite stamps)
-    if (useShadows) {
-      for (let i = 0; i < layers.length; i++) {
-        const layer = layers[i];
-        this.drawContactShadow(ctx, layer.metrics.centerX, layer.metrics.floorY, layer.metrics.drawWidth);
-      }
-    }
-
-    // 3. Layer 2: Transparent Participant Cutouts (sorted by zIndex)
-    // imageSmoothing low for preview speed; capture uses high internally.
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'low';
-    for (let i = 0; i < layers.length; i++) {
-      const layer = layers[i];
-      const { drawX, drawY, drawWidth, drawHeight, centerX } = layer.metrics;
-      if (drawWidth <= 0 || drawHeight <= 0) continue;
-
-      if (layer.mirror) {
-        ctx.save();
-        ctx.translate(centerX, 0);
-        ctx.scale(-1, 1);
-        ctx.translate(-centerX, 0);
-        if (layer.cutout && layer.segStatus === 'ready') {
-          ctx.drawImage(layer.cutout, drawX, drawY, drawWidth, drawHeight);
-        } else if (layer.cutout && layer.hasVideo) {
-          ctx.globalAlpha = 0.65;
-          ctx.drawImage(layer.cutout, drawX, drawY, drawWidth, drawHeight);
-          ctx.globalAlpha = 1.0;
-        } else {
-          this.drawLoadingSilhouette(ctx, drawX, drawY, drawWidth, drawHeight);
+      _drawCutout(ctx, cutout, drawX, drawY, drawWidth, drawHeight, baselineY = 1.0) {
+        if (baselineY >= 0.96 || !cutout?.width || !cutout?.height) {
+          ctx.drawImage(cutout, drawX, drawY, drawWidth, drawHeight);
+          return;
         }
-        ctx.restore();
-      } else if (layer.cutout && layer.segStatus === 'ready') {
-        ctx.drawImage(layer.cutout, drawX, drawY, drawWidth, drawHeight);
-      } else if (layer.cutout && layer.hasVideo) {
-        ctx.globalAlpha = 0.65;
-        ctx.drawImage(layer.cutout, drawX, drawY, drawWidth, drawHeight);
-        ctx.globalAlpha = 1.0;
-      } else {
-        this.drawLoadingSilhouette(ctx, drawX, drawY, drawWidth, drawHeight);
+        if (!this._fadeCanvas) {
+          this._fadeCanvas = document.createElement('canvas');
+        }
+        if (this._fadeCanvas.width !== cutout.width || this._fadeCanvas.height !== cutout.height) {
+          this._fadeCanvas.width = cutout.width;
+          this._fadeCanvas.height = cutout.height;
+          this._fadeCtx = this._fadeCanvas.getContext('2d');
+        }
+        const fCtx = this._fadeCtx;
+        if (!fCtx) {
+          ctx.drawImage(cutout, drawX, drawY, drawWidth, drawHeight);
+          return;
+        }
+        const w = cutout.width;
+        const h = cutout.height;
+        fCtx.clearRect(0, 0, w, h);
+        fCtx.globalCompositeOperation = 'source-over';
+        fCtx.drawImage(cutout, 0, 0);
+        fCtx.globalCompositeOperation = 'destination-in';
+        const grad = fCtx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, 'rgba(0, 0, 0, 1)');
+        grad.addColorStop(0.86, 'rgba(0, 0, 0, 1)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        fCtx.fillStyle = grad;
+        fCtx.fillRect(0, 0, w, h);
+        fCtx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(this._fadeCanvas, drawX, drawY, drawWidth, drawHeight);
       }
-    }
 
-    // 4. Present offscreen buffer to active canvas
-    if (!this._displayCtx || this._displayCtx.canvas !== this.canvas) {
-      this._displayCtx = this.canvas.getContext('2d', { alpha: false, desynchronized: true });
-    }
-    if (this._displayCtx) {
-      this._displayCtx.drawImage(this.offscreenCanvas, 0, 0);
-    }
-    this.lastRenderMs = performance.now() - t0;
-  }
+      setCanvas(canvas) {
+        this.canvas = canvas;
+        if (this.canvas) {
+          this.canvas.width = this.sceneW;
+          this.canvas.height = this.sceneH;
+        }
+        this._displayCtx = null;
+      }
+
+      /** Adaptive preview size; capture path is unaffected. */
+      setCompositeSize(w, h) {
+        const nw = Math.round(w), nh = Math.round(h);
+        if (nw === this.sceneW && nh === this.sceneH) return;
+        this.sceneW = nw;
+        this.sceneH = nh;
+        this.offscreenCanvas.width = nw;
+        this.offscreenCanvas.height = nh;
+        this._offCtx = this.offscreenCanvas.getContext('2d', { alpha: false, desynchronized: true });
+        if (this.canvas) {
+          this.canvas.width = nw;
+          this.canvas.height = nh;
+        }
+        this._displayCtx = null;
+      }
+
+      setQualityFlags({ enableGlow = true, enableShadows = true } = {}) {
+        this.enableGlow = enableGlow;
+        this.enableShadows = enableShadows;
+      }
+
+      /**
+       * Draws a soft, elliptical contact shadow under the participant's feet.
+       * Uses a pre-rendered sprite: no per-frame gradient allocation.
+       */
+      drawContactShadow(ctx, centerX, floorY, personWidth) {
+        const shadowW = Math.max(56, personWidth * 0.7);
+        const shadowH = shadowW * 0.22;
+        try {
+          ctx.drawImage(
+            getShadowSprite(),
+            Math.round(centerX - shadowW / 2),
+            Math.round(floorY - shadowH / 2),
+            Math.round(shadowW),
+            Math.round(shadowH)
+          );
+        } catch { }
+      }
+
+      /**
+       * Draws a placeholder silhouette while a participant's camera or model loads.
+       */
+      drawLoadingSilhouette(ctx, drawX, drawY, width, height) {
+        ctx.save();
+        ctx.globalAlpha = 0.25;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.20)';
+
+        // Head
+        ctx.beginPath();
+        ctx.ellipse(
+          drawX + width / 2,
+          drawY + height * 0.22,
+          width * 0.22,
+          width * 0.22,
+          0,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+
+        // Torso / Body
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(
+            drawX + width * 0.22,
+            drawY + height * 0.32,
+            width * 0.56,
+            height * 0.55,
+            12
+          );
+        } else {
+          ctx.rect(drawX + width * 0.22, drawY + height * 0.32, width * 0.56, height * 0.55);
+        }
+        ctx.fill();
+        ctx.restore();
+      }
+
+      isVideoPlayable(video) {
+        if (!video) return false;
+        if (video.paused) {
+          try {
+            const p = video.play();
+            if (p?.catch) p.catch(() => { });
+          } catch { }
+        }
+        return video.readyState >= 2 && video.videoWidth > 0;
+      }
+
+      /**
+       * Prepares normalized visual layers for all participants.
+       */
+      buildLayers(sceneParticipants, totalCount, isHQ = false, sceneW = this.sceneW, sceneH = this.sceneH) {
+        const count = Math.min(4, Math.max(1, totalCount || 1));
+        const layers = [];
+
+        sceneParticipants.slice(0, 4).forEach((part, joinIndex) => {
+          const transform =
+            part.transform ?? getDefaultParticipantTransform(joinIndex, count);
+
+          const hasVideo = this.isVideoPlayable(part.video);
+
+          let cutout = null;
+          let bounds = { normX: 0.15, normY: 0.05, normWidth: 0.7, normHeight: 0.9, detected: false };
+          let segStatus = 'loading';
+
+          if (hasVideo) {
+            const res = isHQ
+              ? segmentationManager.processHighQuality(part.peerId, part.video)
+              : segmentationManager.processParticipant(part.peerId, part.video, count);
+
+            cutout = res.cutout;
+            bounds = res.bounds || bounds;
+            segStatus = res.status;
+          }
+
+          const metrics = normalizePersonCutout({
+            cutoutCanvas: cutout,
+            bounds,
+            transform,
+            sceneWidth: sceneW,
+            sceneHeight: sceneH,
+            totalCount: count,
+          });
+
+          layers.push({
+            peerId: part.peerId,
+            name: part.name,
+            mirror: !!part.mirror,
+            cutout,
+            hasVideo,
+            video: part.video,
+            segStatus,
+            metrics,
+            zIndex: metrics.zIndex,
+          });
+        });
+
+        return layers.sort((a, b) => a.zIndex - b.zIndex);
+      }
+
+      /**
+       * Executes a single animation frame of the virtual photo studio.
+       * opts: { enableGlow, enableShadows } — defaults to instance flags.
+       */
+      renderFrame({ background, sceneParticipants, enableGlow, enableShadows, split }) {
+        if (!this.canvas) return;
+        const t0 = performance.now();
+        const ctx = this._offCtx;
+        if (!ctx) return;
+        const W = this.sceneW, H = this.sceneH;
+        if (split) {
+          drawWindows(this.canvas.getContext('2d'), sceneParticipants, this.canvas.width, this.canvas.height);
+          return;
+        }
+        const useGlow = enableGlow ?? this.enableGlow;
+        const useShadows = enableShadows ?? this.enableShadows;
+
+        // 1. Layer 0: Shared Background & Floor Environment (cached → 1 drawImage)
+        drawStudioBackground(ctx, background, W, H, { enableGlow: useGlow });
+
+        const activeCount = sceneParticipants.length;
+        const layers = this.buildLayers(sceneParticipants, activeCount, false, W, H);
+
+        // 2. Layer 1: Ground Contact Shadows (only when lifted off the bottom frame)
+        if (useShadows) {
+          for (let i = 0; i < layers.length; i++) {
+            const layer = layers[i];
+            if (layer.metrics.baselineY < 0.96) {
+              this.drawContactShadow(ctx, layer.metrics.centerX, layer.metrics.floorY, layer.metrics.drawWidth);
+            }
+          }
+        }
+
+        // 3. Layer 2: Transparent Participant Cutouts (sorted by zIndex)
+        // imageSmoothing low for preview speed; capture uses high internally.
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'low';
+        for (let i = 0; i < layers.length; i++) {
+          const layer = layers[i];
+          const { drawX, drawY, drawWidth, drawHeight, centerX, baselineY } = layer.metrics;
+          if (drawWidth <= 0 || drawHeight <= 0) continue;
+
+          ctx.save();
+          if (layer.mirror) {
+            ctx.translate(centerX, 0);
+            ctx.scale(-1, 1);
+            ctx.translate(-centerX, 0);
+          }
+          if (layer.cutout && layer.segStatus === 'ready') {
+            this._drawCutout(ctx, layer.cutout, drawX, drawY, drawWidth, drawHeight, baselineY);
+          } else if (layer.cutout && layer.hasVideo) {
+            ctx.globalAlpha = 0.65;
+            this._drawCutout(ctx, layer.cutout, drawX, drawY, drawWidth, drawHeight, baselineY);
+          } else {
+            this.drawLoadingSilhouette(ctx, drawX, drawY, drawWidth, drawHeight);
+          }
+          ctx.restore();
+        }
+
+        // 4. Present offscreen buffer to active canvas
+        if (!this._displayCtx || this._displayCtx.canvas !== this.canvas) {
+          this._displayCtx = this.canvas.getContext('2d', { alpha: false, desynchronized: true });
+        }
+        if (this._displayCtx) {
+          this._displayCtx.drawImage(this.offscreenCanvas, 0, 0);
+        }
+        this.lastRenderMs = performance.now() - t0;
+      }
 
   /**
    * Captures a high-resolution snapshot for the final photo strip.
    * NEVER renders raw video frames, UI elements, or debug overlays.
    * Always full glow + shadows + high smoothing regardless of preview tier.
    */
-  async captureHD({ background, sceneParticipants, targetWidth = 1920, targetHeight = 1080 }) {
-    const snapCanvas = document.createElement('canvas');
-    snapCanvas.width = targetWidth;
-    snapCanvas.height = targetHeight;
-    const ctx = snapCanvas.getContext('2d', { alpha: false });
-    if (!ctx) return null;
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
+  async captureHD({ background, sceneParticipants, split, targetWidth = 1920, targetHeight = 1080 }) {
+        const snapCanvas = document.createElement('canvas');
+        snapCanvas.width = targetWidth;
+        snapCanvas.height = targetHeight;
+        const ctx = snapCanvas.getContext('2d', { alpha: false });
+        if (!ctx) return null;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
 
-    // Draw shared studio background on HD canvas
-    drawStudioBackground(ctx, background, targetWidth, targetHeight, { enableGlow: true });
+        if (split) {
+          drawWindows(ctx, sceneParticipants, targetWidth, targetHeight);
+          return snapCanvas.toDataURL('image/jpeg', 0.94);
+        }
+        // Draw shared studio background on HD canvas
+        drawStudioBackground(ctx, background, targetWidth, targetHeight, { enableGlow: true });
 
-    const activeCount = sceneParticipants.length;
-    const layers = this.buildLayers(
-      sceneParticipants,
-      activeCount,
-      true,
-      targetWidth,
-      targetHeight
-    );
+        const activeCount = sceneParticipants.length;
+        const layers = this.buildLayers(
+          sceneParticipants,
+          activeCount,
+          true,
+          targetWidth,
+          targetHeight
+        );
 
-    // Draw HD contact shadows
-    for (let i = 0; i < layers.length; i++) {
-      const layer = layers[i];
-      this.drawContactShadow(ctx, layer.metrics.centerX, layer.metrics.floorY, layer.metrics.drawWidth);
-    }
+        // Draw HD contact shadows only when lifted off the bottom frame
+        for (let i = 0; i < layers.length; i++) {
+          const layer = layers[i];
+          if (layer.metrics.baselineY < 0.96) {
+            this.drawContactShadow(ctx, layer.metrics.centerX, layer.metrics.floorY, layer.metrics.drawWidth);
+          }
+        }
 
-    // Draw HD participant cutouts (transparent person only)
-    for (let i = 0; i < layers.length; i++) {
-      const layer = layers[i];
-      const { drawX, drawY, drawWidth, drawHeight, centerX } = layer.metrics;
-      if (!layer.cutout || drawWidth <= 0 || drawHeight <= 0) continue;
-      ctx.save();
-      if (layer.mirror) {
-        ctx.translate(centerX, 0);
-        ctx.scale(-1, 1);
-        ctx.translate(-centerX, 0);
+        // Draw HD participant cutouts (transparent person only)
+        for (let i = 0; i < layers.length; i++) {
+          const layer = layers[i];
+          const { drawX, drawY, drawWidth, drawHeight, centerX, baselineY } = layer.metrics;
+          if (!layer.cutout || drawWidth <= 0 || drawHeight <= 0) continue;
+          ctx.save();
+          if (layer.mirror) {
+            ctx.translate(centerX, 0);
+            ctx.scale(-1, 1);
+            ctx.translate(-centerX, 0);
+          }
+          this._drawCutout(ctx, layer.cutout, drawX, drawY, drawWidth, drawHeight, baselineY);
+          ctx.restore();
+        }
+
+        return snapCanvas.toDataURL('image/jpeg', 0.94);
       }
-      ctx.drawImage(layer.cutout, drawX, drawY, drawWidth, drawHeight);
-      ctx.restore();
     }
-
-    return snapCanvas.toDataURL('image/png');
-  }
-}

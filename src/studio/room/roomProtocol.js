@@ -9,6 +9,8 @@ export const PROTOCOL_TYPES = {
   IDENTITY: 'IDENTITY',
   PEER_LIST: 'PEER_LIST',
   PARTICIPANT_UPDATE: 'PARTICIPANT_UPDATE',
+  PRINT_REQUEST: 'PRINT_REQUEST',
+  PRINT_PART: 'PRINT_PART',
   SHUTTER: 'SHUTTER',
   FLASH_FIRE: 'FLASH_FIRE',
   LEAVE: 'LEAVE',
@@ -23,6 +25,7 @@ const HOST_ONLY_TYPES = new Set([
   PROTOCOL_TYPES.ROOM_STATE_SYNC,
   PROTOCOL_TYPES.SHUTTER,
   PROTOCOL_TYPES.FLASH_FIRE,
+  PROTOCOL_TYPES.PRINT_PART,
   PROTOCOL_TYPES.PEER_LIST,
 ]);
 
@@ -83,6 +86,18 @@ export function validateIncomingMessage(data, fromPeerId, hostPeerId) {
     }
   }
 
+  if ([PROTOCOL_TYPES.PRINT_REQUEST, PROTOCOL_TYPES.PRINT_PART].includes(data.type)) {
+    if (typeof data.id !== 'string' || data.id.length > 64 ||
+        !Number.isInteger(data.index) || data.index < 0 || data.index >= 256) {
+      return { valid: false, reason: 'invalid_print_reference' };
+    }
+    if (data.type === PROTOCOL_TYPES.PRINT_PART &&
+        (typeof data.chunk !== 'string' || !data.chunk.length || data.chunk.length > 32768 ||
+         !Number.isInteger(data.count) || data.count <= data.index || data.count > 256)) {
+      return { valid: false, reason: 'invalid_print_part' };
+    }
+  }
+
   // 5. Payload bounds
   if (data.type === PROTOCOL_TYPES.IDENTITY) {
     if (typeof data.displayName === 'string' && data.displayName.length > 50) {
@@ -91,6 +106,11 @@ export function validateIncomingMessage(data, fromPeerId, hostPeerId) {
   }
 
   if (data.type === PROTOCOL_TYPES.SHUTTER) {
+    if (data.captureTimestamps !== undefined && (!Array.isArray(data.captureTimestamps) ||
+        data.captureTimestamps.length !== data.totalShots || !Number.isFinite(data.timestamp) ||
+        data.captureTimestamps.some(time => !Number.isFinite(time) || Math.abs(time - data.timestamp) > 360000))) {
+      return { valid: false, reason: 'invalid_capture_schedule' };
+    }
     if (typeof data.totalShots === 'number' && (data.totalShots < 1 || data.totalShots > 10)) {
       return { valid: false, reason: 'invalid_shot_count' };
     }

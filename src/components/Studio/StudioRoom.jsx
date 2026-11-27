@@ -2,7 +2,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowLeft,
-  BatteryMedium,
+  Timer,
   Camera,
   Check,
   Flashlight,
@@ -21,16 +21,21 @@ import { getTierConfig } from '../../studio/performance/deviceTier.js';
 import { PerfMonitor } from '../../studio/performance/perfMonitor.js';
 import { STUDIO_BACKGROUNDS } from '../../constants/studioAssets.js';
 import { activeMembers, sortMembersByJoinOrder } from '../../studio/room/roomState.js';
-import { constrainParticipantPosition } from '../../studio/compositor/participantLayout.js';
+import {
+  constrainParticipantPosition,
+  getDefaultParticipantTransform,
+} from '../../studio/compositor/participantLayout.js';
 import {
   computeCaptureTimestamps,
   executeCaptureSequence,
 } from '../../studio/capture/studioCapture.js';
 import {
-  createFlashFireMessage,
   createShutterMessage,
   PROTOCOL_TYPES,
 } from '../../studio/room/roomProtocol.js';
+
+import { InviteButton } from './StudioReview.jsx';
+import './studioSession.css';
 
 const RESOLUTION_OPTIONS = [
   { id: '1080p', label: '1080p (Full HD)', desc: 'Highest photo detail & crisp resolution', width: 1920, height: 1080 },
@@ -38,11 +43,13 @@ const RESOLUTION_OPTIONS = [
   { id: '480p', label: '480p (SD)', desc: 'Fastest performance & low latency', width: 854, height: 480 },
 ];
 
+const POSES = ['Look at each other', 'Swap expressions', 'Pose for an album cover', 'Give your biggest smile'];
 const SHOW_DEBUG = import.meta.env.DEV;
 
 function StudioRoomComponent({
   isHost,
   roomCode,
+  connectionError,
   roomState,
   selfPeerId,
   participants,
@@ -61,7 +68,7 @@ function StudioRoomComponent({
   const [flashFire, setFlashFire] = useState(false);
   const [showBgPicker, setShowBgPicker] = useState(false);
   const [showQualityControls, setShowQualityControls] = useState(false);
-  const [showDebug, setShowDebug] = useState(SHOW_DEBUG);
+  const [showDebug, setShowDebug] = useState(false);
   const [selectedResolution, setSelectedResolution] = useState('720p');
   const [shooting, setShooting] = useState(false);
   const [shotIndex, setShotIndex] = useState(null);
@@ -75,18 +82,24 @@ function StudioRoomComponent({
   const fileInputRef = useRef(null);
   const animFrameRef = useRef(null);
   const sceneParticipantsRef = useRef([]);
+  const pendingPosition = useRef(null);
+  const lastPositionSent = useRef(0);
   const dragRef = useRef(null);
   const isCancelledRef = useRef(false);
+
+  const [paused, setPaused] = useState(false);
+  const [error, setError] = useState('');
+  const split = roomState?.layout === 'windows';
 
   const customBgUrl = roomState?.customBgUrl ?? localCustomBgUrl ?? null;
 
   const background = useMemo(() => {
-    const bgId = roomState?.backgroundId || 'y2k-chrome';
+    const bgId = roomState?.backgroundId || 'wine-velvet';
     return STUDIO_BACKGROUNDS.find((b) => b.id === bgId) || STUDIO_BACKGROUNDS[0];
   }, [roomState?.backgroundId]);
 
   const timer = roomState?.timer ?? 3;
-  const shotCount = roomState?.shots ?? 4;
+  const shotCount = roomState?.shots ?? 3;
 
   const selfMember = useMemo(
     () => roomState?.members?.find((m) => m.peerId === selfPeerId),
@@ -121,6 +134,7 @@ function StudioRoomComponent({
   }, [sceneParticipants]);
 
   useEffect(() => {
+    isCancelledRef.current = false;
     segmentationManager.init();
     return () => {
       isCancelledRef.current = true;
@@ -183,6 +197,7 @@ function StudioRoomComponent({
         monitor.beginFrame(t0);
         compositorEngineRef.current.renderFrame({
           background: activeBg,
+          split,
           sceneParticipants: sceneParticipantsRef.current,
         });
         const t1 = performance.now();
@@ -211,7 +226,7 @@ function StudioRoomComponent({
         animFrameRef.current = null;
       }
     };
-  }, [background, customBgUrl]);
+  }, [background, customBgUrl, split]);
 
   // Clean up detached participant videos
   useEffect(() => {
@@ -295,7 +310,7 @@ function StudioRoomComponent({
     // Pre-decode guard: reject oversized files before decoding (OOM protection)
     const MAX_FILE_SIZE = 8 * 1024 * 1024; // 8 MB
     if (file.size > MAX_FILE_SIZE) {
-      console.warn(`Custom background: rejected oversized file ${(file.size / 1048576).toFixed(1)}MB > 8MB`);
+      setError('Choose a background smaller than 8 MB.');
       e.target.value = '';
       return;
     }
@@ -303,7 +318,7 @@ function StudioRoomComponent({
     // Validate file type: only raster image formats accepted, no SVG
     const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
     if (!ALLOWED_TYPES.includes(file.type)) {
-      console.warn('Custom background: rejected file type', file.type);
+      setError('Choose a JPEG, PNG or WebP background.');
       e.target.value = '';
       return;
     }
@@ -333,7 +348,14 @@ function StudioRoomComponent({
       if (!ctx) return;
       ctx.drawImage(img, 0, 0, w, h);
 
-      const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      let compressedDataUrl = canvas.toDataURL('image/jpeg', 0.84);
+      while (compressedDataUrl.length > 250 * 1024) {
+        canvas.width = Math.max(1, Math.floor(canvas.width * 0.75));
+        canvas.height = Math.max(1, Math.floor(canvas.height * 0.75));
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        compressedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      }
+      setError('');
 
       setLocalCustomBgUrl(compressedDataUrl);
       setShowBgPicker(false);
@@ -341,7 +363,7 @@ function StudioRoomComponent({
     };
     img.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      console.warn('Custom background: failed to decode image');
+      setError('This image could not be opened. Try another background.');
     };
     img.src = objectUrl;
   };
@@ -362,7 +384,7 @@ function StudioRoomComponent({
         startX: e.clientX,
         startY: e.clientY,
         originX: selfMember.transform.x,
-        originBaselineY: selfMember.transform.baselineY ?? 0.88,
+        originBaselineY: selfMember.transform.baselineY ?? 1.0,
       };
     },
     [selfMember]
@@ -381,21 +403,22 @@ function StudioRoomComponent({
       const rawBaselineY = dragRef.current.originBaselineY + dy;
       const constrained = constrainParticipantPosition(rawX, rawBaselineY);
 
-      updateSelfParticipant({
-        transform: {
-          ...selfMember.transform,
-          x: constrained.x,
-          baselineY: constrained.baselineY,
-          isManual: true,
-        },
-      });
+      const patch = { transform: { ...selfMember.transform, x: constrained.x, baselineY: constrained.baselineY, isManual: true } };
+      pendingPosition.current = patch;
+      if (performance.now() - lastPositionSent.current >= 50) {
+        updateSelfParticipant(patch);
+        lastPositionSent.current = performance.now();
+        pendingPosition.current = null;
+      }
     },
     [selfMember, updateSelfParticipant]
   );
 
   const handlePointerUp = useCallback(() => {
+    if (pendingPosition.current) updateSelfParticipant(pendingPosition.current);
+    pendingPosition.current = null;
     dragRef.current = null;
-  }, []);
+  }, [updateSelfParticipant]);
 
   useEffect(() => {
     window.addEventListener('pointermove', handlePointerMove);
@@ -416,32 +439,43 @@ function StudioRoomComponent({
         ? { solidColor: '#000', customImageUrl: customBgUrl }
         : background;
 
-      const photos = await executeCaptureSequence({
-        totalShots,
-        timerSec,
-        captureTimestamps,
-        compositorEngine: compositorEngineRef.current,
-        background: activeBg,
-        getSceneParticipants: () => sceneParticipantsRef.current,
-        onCountdown: setCountdown,
-        onFlash: () => {
-          if (flashOn) {
-            setFlashFire(true);
-            setTimeout(() => setFlashFire(false), 450);
-          }
-        },
-        onShotIndex: setShotIndex,
-        isCancelled: () => isCancelledRef.current,
-      });
+      setError('');
+      try {
+        const captured = await executeCaptureSequence({
+          totalShots,
+          timerSec,
+          captureTimestamps,
+          compositorEngine: compositorEngineRef.current,
+          split,
+          background: activeBg,
+          getSceneParticipants: () => sceneParticipantsRef.current,
+          onCountdown: setCountdown,
+          onFlash: () => {
+            if (flashOn) {
+              setFlashFire(true);
+              setTimeout(() => setFlashFire(false), 450);
+            }
+          },
+          onShotIndex: setShotIndex,
+          isCancelled: () => isCancelledRef.current,
+        });
 
-      setShooting(false);
-      setShotIndex(null);
-
-      if (photos.length > 0) {
-        onCaptureComplete(photos, totalShots);
+        if (!isCancelledRef.current) {
+          if (captured.length !== totalShots) throw new Error('Incomplete capture');
+          onCaptureComplete(captured, totalShots);
+        }
+      } catch {
+        if (!isCancelledRef.current) {
+          setError('This take could not be developed. Check the camera preview and try again.');
+          if (isHost) updateHostSettings({ capturePhase: 'idle' });
+        }
+      } finally {
+        setShooting(false);
+        setCountdown(null);
+        setShotIndex(null);
       }
     },
-    [shooting, customBgUrl, background, flashOn, onCaptureComplete]
+    [shooting, customBgUrl, background, flashOn, isHost, split, onCaptureComplete, updateHostSettings]
   );
 
   useEffect(() => {
@@ -449,7 +483,9 @@ function StudioRoomComponent({
       if (!data?.type) return;
 
       if (data.type === PROTOCOL_TYPES.SHUTTER) {
-        runCapture(data.totalShots, data.timerSec, data.captureTimestamps || []);
+        const receivedAt = Date.now();
+        const times = (data.captureTimestamps || []).map(time => receivedAt + Math.max(0, time - data.timestamp));
+        runCapture(data.totalShots, data.timerSec, times);
       }
 
       if (data.type === PROTOCOL_TYPES.FLASH_FIRE && flashOn) {
@@ -464,8 +500,20 @@ function StudioRoomComponent({
   const handleShutter = useCallback(() => {
     if (!isHost || shooting) return;
 
+    const scene = sceneParticipantsRef.current;
+    if (!scene.length || scene.some(p => !p.video || p.video.readyState < 2)) {
+      setError('Waiting for camera video. Try again when everyone appears in the preview.');
+      return;
+    }
+    if (!split && scene.some(p => segmentationManager.getStatus(p.peerId) !== 'ready')) {
+      setError('The cutouts are warming up. Switch to Split frame to shoot with full camera views.');
+      return;
+    }
+    setShowBgPicker(false);
+    setShowQualityControls(false);
     const timerSec = timer;
     const totalShots = shotCount;
+    updateHostSettings({ capturePhase: 'shooting' });
     const captureTimestamps = computeCaptureTimestamps(totalShots, timerSec);
 
     broadcast(
@@ -476,12 +524,9 @@ function StudioRoomComponent({
       })
     );
 
-    if (flashOn) {
-      broadcast(createFlashFireMessage());
-    }
 
     runCapture(totalShots, timerSec, captureTimestamps);
-  }, [isHost, shooting, timer, shotCount, broadcast, flashOn, runCapture]);
+  }, [isHost, shooting, timer, shotCount, broadcast, flashOn, runCapture, updateHostSettings, split]);
 
   const cycleTimer = useCallback(() => {
     if (!isHost || shooting) return;
@@ -548,11 +593,12 @@ function StudioRoomComponent({
 
       {/* Top Bar */}
       <div className="studio-room-topbar">
-        <button type="button" className="studio-room-back" onClick={onLeave} disabled={shooting}>
+        <button type="button" className="studio-room-back" onClick={onLeave}>
           <ArrowLeft size={18} />
           <span>Leave Studio</span>
         </button>
         <div className="studio-room-info">
+          <InviteButton code={roomCode} />
           <span className="studio-room-code-badge">{roomCode}</span>
           <span className="studio-room-participant-count">
             <Users size={14} /> {sortedMembers.length}
@@ -570,6 +616,7 @@ function StudioRoomComponent({
         </div>
       </div>
 
+      {(error || connectionError) && <p className="studio-session-error" role="alert">{error || connectionError}</p>}
       {/* Development Diagnostics */}
       {showDebug && SHOW_DEBUG && (
         <div
@@ -608,7 +655,7 @@ function StudioRoomComponent({
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          ● SHOOTING SHOT {shotIndex} OF {shotCount}
+          {roomState?.poses && <span>{POSES[(shotIndex - 1) % POSES.length]} · </span>}Frame {shotIndex} of {shotCount}
         </motion.div>
       )}
 
@@ -619,15 +666,16 @@ function StudioRoomComponent({
           className="studio-compositor-canvas"
           width={1280}
           height={720}
-          onPointerDown={handlePointerDown}
+          onPointerDown={split || shooting ? undefined : handlePointerDown}
           onKeyDown={(e) => {
+            if (split || shooting || !selfMember?.transform) return;
             if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
               e.preventDefault();
               const step = 0.02;
               const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
               const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
               const rawX = (selfMember?.transform?.x ?? 0.5) + dx;
-              const rawY = (selfMember?.transform?.baselineY ?? 0.88) + dy;
+              const rawY = (selfMember?.transform?.baselineY ?? 1.0) + dy;
               const c = constrainParticipantPosition(rawX, rawY);
               updateSelfParticipant({ transform: { ...selfMember.transform, x: c.x, baselineY: c.baselineY, isManual: true } });
             }
@@ -640,7 +688,7 @@ function StudioRoomComponent({
 
         <div className="studio-framing-guide">
           <div className="studio-framing-box" />
-          <span className="studio-framing-text">Drag to reposition · Stay on floor</span>
+          <span className="studio-framing-text">{split ? 'Split frame · Full camera view' : 'Drag or use arrow keys to position yourself'}</span>
         </div>
 
         <div aria-live="assertive" aria-atomic="true" className="sr-only">{countdown !== null ? `Capturing in ${countdown}` : ''}</div>
@@ -675,28 +723,13 @@ function StudioRoomComponent({
 
       {/* Studio Controls */}
       <div className="studio-controls">
-        <motion.button
-          type="button"
-          className={`studio-bg-btn studio-opt-btn ${flashOn ? 'opt-active' : ''}`}
-          onClick={toggleFlash}
-          whileHover={{ y: -2 }}
-          whileTap={{ scale: 0.96 }}
-          aria-pressed={flashOn}
-        >
-          <Flashlight size={16} /> Flash <span>{flashOn ? 'on' : 'off'}</span>
-        </motion.button>
+        <button className="studio-bg-btn" aria-pressed={paused} onClick={() => {
+          localStream?.getVideoTracks().forEach(track => { track.enabled = paused; });
+          setPaused(!paused);
+        }}>{paused ? 'Resume camera' : 'Pause camera'}</button>
 
-        <motion.button
-          type="button"
-          className={`studio-bg-btn studio-opt-btn ${mirrorOn ? 'opt-active' : ''}`}
-          onClick={toggleMirror}
-          whileHover={{ y: -2 }}
-          whileTap={{ scale: 0.96 }}
-          aria-pressed={mirrorOn}
-        >
-          <RefreshCcw size={16} /> Mirror <span>{mirrorOn ? 'on' : 'off'}</span>
-        </motion.button>
-
+        {isHost && <button className="studio-opt-btn studio-bg-btn" disabled={shooting} onClick={() => updateHostSettings({layout: split ? 'set' : 'windows'})}>{split ? 'Split frame' : 'Shared set'} · Switch</button>}
+        {isHost && sortedMembers.length > 1 && <span className="studio-ready-count">{sortedMembers.filter(m => m.ready && m.peerId !== selfPeerId).length}/{sortedMembers.length - 1} guests ready</span>}
         <motion.button
           type="button"
           className={`studio-bg-btn studio-opt-btn ${showQualityControls ? 'opt-active' : ''}`}
@@ -707,7 +740,7 @@ function StudioRoomComponent({
           whileHover={{ y: -2 }}
           whileTap={{ scale: 0.96 }}
         >
-          <Sliders size={16} /> Quality <span>{selectedResolution}</span>
+          <Sliders size={16} /> Settings
         </motion.button>
 
         {isHost ? (
@@ -723,10 +756,9 @@ function StudioRoomComponent({
             <Camera size={24} />
           </motion.button>
         ) : (
-          <div className="studio-guest-hint">
-            <Sparkles size={14} />
-            <span>The host will take the photo</span>
-          </div>
+          <button className="studio-copy-btn" aria-pressed={!!selfMember?.ready} onClick={() => updateSelfParticipant({ready: !selfMember?.ready})}>
+            {selfMember?.ready ? 'Ready ✓' : 'I’m ready'}
+          </button>
         )}
 
         {isHost && (
@@ -739,7 +771,7 @@ function StudioRoomComponent({
               whileTap={{ scale: 0.96 }}
               disabled={shooting}
             >
-              <BatteryMedium size={16} /> Timer <span>{timer === 0 ? 'off' : `${timer}s`}</span>
+              <Timer size={16} /> Timer <span>{timer === 0 ? 'off' : `${timer}s`}</span>
             </motion.button>
 
             <motion.button
@@ -802,7 +834,7 @@ function StudioRoomComponent({
                   <div
                     className="studio-bg-swatch"
                     style={{
-                      background: `linear-gradient(135deg, ${bg.gradient[0]}, ${bg.accent || bg.gradient[bg.gradient.length - 1]})`,
+                      background: bg.customImageUrl ? `center / cover url("${bg.customImageUrl}")` : `linear-gradient(135deg, ${bg.gradient[0]}, ${bg.accent || bg.gradient[bg.gradient.length - 1]})`,
                     }}
                   />
                   <span>{bg.name}</span>
@@ -823,6 +855,66 @@ function StudioRoomComponent({
             exit={{ opacity: 0, y: 20 }}
             transition={{ type: 'spring', stiffness: 300, damping: 26 }}
           >
+            <div className="studio-setting-toggles">
+        <motion.button
+          type="button"
+          className={`studio-bg-btn studio-opt-btn ${flashOn ? 'opt-active' : ''}`}
+          onClick={toggleFlash}
+          whileHover={{ y: -2 }}
+          whileTap={{ scale: 0.96 }}
+          aria-pressed={flashOn}
+        >
+          <Flashlight size={16} /> Flash <span>{flashOn ? 'on' : 'off'}</span>
+        </motion.button>
+
+        <motion.button
+          type="button"
+          className={`studio-bg-btn studio-opt-btn ${mirrorOn ? 'opt-active' : ''}`}
+          onClick={toggleMirror}
+          whileHover={{ y: -2 }}
+          whileTap={{ scale: 0.96 }}
+          aria-pressed={mirrorOn}
+        >
+          <RefreshCcw size={16} /> Mirror <span>{mirrorOn ? 'on' : 'off'}</span>
+        </motion.button>
+
+        {isHost && <button className="studio-bg-btn" disabled={shooting} aria-pressed={!!roomState.poses} onClick={() => updateHostSettings({poses: !roomState.poses})}>Pose prompts {roomState.poses ? 'on' : 'off'}</button>}
+            </div>
+            {selfMember?.transform && (
+              <div style={{ marginBottom: 14 }}>
+                <div className="studio-picker-header">
+                  <span className="studio-bg-picker-label">
+                    Your Size ({Math.round((selfMember.transform.scale ?? 1) * 100)}%)
+                  </span>
+                  <button
+                    type="button"
+                    className="studio-upload-btn"
+                    onClick={() => {
+                      const joinIndex = sortedMembers.findIndex((m) => m.peerId === selfPeerId);
+                      const def = getDefaultParticipantTransform(Math.max(0, joinIndex), sortedMembers.length);
+                      updateSelfParticipant({ transform: def });
+                    }}
+                  >
+                    Reset Framing
+                  </button>
+                </div>
+                <input
+                  type="range"
+                  min={0.7}
+                  max={1.4}
+                  step={0.05}
+                  value={selfMember.transform.scale ?? 1.0}
+                  className="studio-slider"
+                  aria-label="Your portrait size"
+                  onChange={(e) => {
+                    const nextScale = Number(e.target.value);
+                    updateSelfParticipant({
+                      transform: { ...selfMember.transform, scale: nextScale, isManual: true },
+                    });
+                  }}
+                />
+              </div>
+            )}
             <div className="studio-picker-header">
               <span className="studio-bg-picker-label">Camera Quality</span>
             </div>

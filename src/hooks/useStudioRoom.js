@@ -58,6 +58,8 @@ export function useStudioRoom() {
     };
   }, []);
 
+  const sendTo = useCallback((peerId, message) => mediaManagerRef.current?.sendTo(peerId, message), []);
+
   const broadcast = useCallback((message) => {
     mediaManagerRef.current?.broadcast(message);
   }, []);
@@ -344,10 +346,10 @@ export function useStudioRoom() {
       const initialGuestState = {
         version: 0,
         hostPeerId: hostId,
-        backgroundId: 'y2k-chrome',
+        backgroundId: 'wine-velvet',
         customBgUrl: null,
         timer: 3,
-        shots: 4,
+        shots: 3,
         capturePhase: 'idle',
         captureTimestamps: [],
         members: [optimisticHost, optimisticSelf],
@@ -499,6 +501,7 @@ export function useStudioRoom() {
     joinRoom,
     leaveRoom,
     broadcast,
+    sendTo,
     onData,
     setDisplayName,
     updateSelfParticipant,

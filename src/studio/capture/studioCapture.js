@@ -27,6 +27,7 @@ export async function executeCaptureSequence({
   timerSec = 3,
   captureTimestamps = [],
   compositorEngine,
+  split,
   background,
   getSceneParticipants,
   onCountdown = () => {},
@@ -70,9 +71,10 @@ export async function executeCaptureSequence({
       const participants = getSceneParticipants();
       const photoDataUrl = await compositorEngine.captureHD({
         background,
+        split,
         sceneParticipants: participants,
         targetWidth: 1600,
-        targetHeight: 1200,
+        targetHeight: 900,
       });
 
       if (photoDataUrl) {

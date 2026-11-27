@@ -42,7 +42,7 @@ const StickerBubble = memo(function StickerBubbleComponent({ text, className = '
   return <motion.div className={`sticker-bubble ${className}`} animate={{ y: [0, -8, 0], rotate: [-2, 2, -2] }} transition={{ duration: 4, repeat: Infinity }}>{text}</motion.div>;
 });
 
-function HeroComponent({ onStart, photos, filter, timestamp }) {
+function HeroComponent({ onStart, onStudioOpen, photos, filter, timestamp }) {
   const prefersReduced = useReducedMotion();
   const x = useMotionValue(0);
   const y = useMotionValue(0);
@@ -75,6 +75,7 @@ function HeroComponent({ onStart, photos, filter, timestamp }) {
           <motion.button type="button" className="start-button" whileTap={{ scale: 0.95 }} whileHover={{ y: -3 }} onClick={onStart}>
             Start Booth <ChevronRight size={22} />
           </motion.button>
+          {onStudioOpen && <button type="button" className="supporting-action" onClick={onStudioOpen}>Open group studio</button>}
           <a className="supporting-action" href="#templates">Browse templates</a>
         </div>
       </div>

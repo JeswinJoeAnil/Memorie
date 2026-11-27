@@ -1,8 +1,18 @@
+import velvetBackdrop from '../../assets/photos/wine-velvet.webp';
+
 /**
  * Studio background environments — curated Y2K-themed virtual studio scenes.
  * Each entry describes a CSS gradient/color treatment for the compositor canvas.
  */
 export const STUDIO_BACKGROUNDS = [
+  {
+    id: 'wine-velvet',
+    name: 'Wine Velvet',
+    description: 'An oxblood velvet booth with soft side lighting',
+    customImageUrl: velvetBackdrop,
+    gradient: ['#812d40', '#521625', '#260e18'],
+    accent: '#b75a69',
+  },
   {
     id: 'y2k-chrome',
     name: 'Y2K Chrome',

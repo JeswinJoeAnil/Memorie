@@ -32,7 +32,7 @@ function sceneKey(background, width, height, enableGlow) {
 function paintScene(ctx, background, width, height, enableGlow, imageReadyCb) {
   // 1. Custom Image Background
   if (background?.customImageUrl) {
-    const fallbackGrad = ['#2d1b4e', '#1a0a2e', '#0d0520'];
+    const fallbackGrad = background.gradient ?? ['#2d1b4e', '#1a0a2e', '#0d0520'];
     const grad = ctx.createLinearGradient(0, 0, 0, height);
     fallbackGrad.forEach((color, i) => {
       grad.addColorStop(i / (fallbackGrad.length - 1), color);

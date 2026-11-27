@@ -34,6 +34,15 @@ describe('validateIncomingMessage', () => {
     expect(validateIncomingMessage({ type: PROTOCOL_TYPES.SHUTTER, totalShots: 2, timerSec: 31 }, HOST, HOST).reason).toBe('invalid_timer');
     expect(validateIncomingMessage({ type: PROTOCOL_TYPES.ROOM_STATE_SYNC, roomState: { customBgUrl: 'x'.repeat(260*1024) } }, HOST, HOST).reason).toBe('custom_bg_too_large');
   });
+  it('accepts bounded print requests and restricts print data to the host', () => {
+    const request = { type: PROTOCOL_TYPES.PRINT_REQUEST, id: 'round', index: 0 };
+    const part = { ...request, type: PROTOCOL_TYPES.PRINT_PART, chunk: 'abc', count: 1 };
+    expect(validateIncomingMessage(request, GUEST, HOST).valid).toBe(true);
+    expect(validateIncomingMessage(part, HOST, HOST).valid).toBe(true);
+    expect(validateIncomingMessage(part, GUEST, HOST).valid).toBe(false);
+    expect(validateIncomingMessage({ ...part, index: 1 }, HOST, HOST).valid).toBe(false);
+    expect(validateIncomingMessage({ ...part, chunk: 'a'.repeat(32769) }, HOST, HOST).valid).toBe(false);
+  });
   it('rejects oversized message', () => {
     const big = { type: PROTOCOL_TYPES.IDENTITY, displayName: 'a', extra: 'x'.repeat(310*1024) };
     expect(validateIncomingMessage(big, GUEST, HOST).reason).toBe('message_too_large');

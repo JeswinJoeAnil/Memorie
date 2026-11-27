@@ -17,6 +17,8 @@ import { StripEditor } from './components/StripEditor.jsx';
 import { MemoryLab } from './components/MemoryLab.jsx';
 import { Footer } from './components/Footer.jsx';
 import { NotFound } from './components/NotFound.jsx';
+import { invitedRoomCode } from './utils/roomCode.js';
+
 const studioEnabled = import.meta.env.VITE_ENABLE_STUDIO !== 'false';
 const StudioMode = studioEnabled
   ? lazy(() => import('./components/Studio/StudioMode.jsx').then(module => ({ default: module.StudioMode })))
@@ -356,7 +358,7 @@ export default function App() {
   const goToHome = goToCapture;
 
   /* ─── Studio Mode state ─── */
-  const [isStudioOpen, setStudioOpen] = useState(false);
+  const [isStudioOpen, setStudioOpen] = useState(() => studioEnabled && Boolean(invitedRoomCode()));
 
   const openStudio = useCallback(() => {
     setStudioOpen(true);
@@ -364,22 +366,24 @@ export default function App() {
 
   const closeStudio = useCallback(() => {
     setStudioOpen(false);
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('studio')) {
+      url.searchParams.delete('studio');
+      window.history.replaceState(window.history.state, '', url);
+    }
   }, []);
 
   const handleStudioCapture = useCallback((photos, studioShotCount) => {
     /* Push group photos into the captured state and transition to strip editor */
     const photoList = Array.isArray(photos) ? photos : [photos];
-    if (captured.length > 0) {
-      const ok = window.confirm(`Replace your ${captured.length} solo photo${captured.length === 1 ? '' : 's'} with ${photoList.length} studio shot${photoList.length === 1 ? '' : 's'}?`);
-      if (!ok) return;
-    }
     const count = studioShotCount || photoList.length;
     setMode(count);
+    setCapturedAnimations({});
     setCaptured(photoList);
     setTimestamp(getFormattedTimestamp());
-    setStudioOpen(false);
+    closeStudio();
     navigate('editor');
-  }, [captured.length, navigate]);
+  }, [closeStudio, navigate]);
 
   return (
     <main>
@@ -397,7 +401,7 @@ export default function App() {
       />
       {StudioMode && isStudioOpen && (
         <Suspense fallback={<div className="studio-loading">Loading Studio…</div>}>
-          <StudioMode isOpen={isStudioOpen} onClose={closeStudio} onCaptureComplete={handleStudioCapture} />
+          <StudioMode existingPhotoCount={captured.length} existingStream={cameraStream} isOpen={isStudioOpen} onClose={closeStudio} onCaptureComplete={handleStudioCapture} />
         </Suspense>
       )}
       <audio
@@ -429,6 +433,7 @@ export default function App() {
             transition={{ type: 'spring', stiffness: 80, damping: 18 }}
           >
             <Hero
+              onStudioOpen={studioEnabled ? openStudio : undefined}
               onStart={() => { requestCamera(); onStartBooth(); }}
               photos={previewPhotos}
               filter={selectedFilter}

@@ -31,10 +31,10 @@ export function normalizePersonCutout({
   const personRatio = cutoutH > 0 ? cutoutW / cutoutH : 0.65;
 
   // Target visible person height in relation to studio scene height (with head safe area)
-  let heightRatio = 0.74;
-  if (count === 2) heightRatio = 0.70;
-  else if (count === 3) heightRatio = 0.66;
-  else if (count === 4) heightRatio = 0.62;
+  let heightRatio = 0.80;
+  if (count === 2) heightRatio = 0.76;
+  else if (count === 3) heightRatio = 0.72;
+  else if (count === 4) heightRatio = 0.68;
 
   const targetHeight = sceneHeight * heightRatio * userScale;
   const drawHeight = Math.round(targetHeight);
@@ -45,8 +45,8 @@ export function normalizePersonCutout({
   const centerX = Math.round(posX * sceneWidth);
   const drawX = Math.round(centerX - drawWidth / 2);
 
-  // Anchor feet/bottom of person strictly to the baseline floor plane
-  const baselineY = transform?.baselineY ?? 0.88;
+  // Anchor bottom of person to the baseline (default 1.0 = flush with frame bottom)
+  const baselineY = transform?.baselineY ?? 1.0;
   const floorY = Math.round(baselineY * sceneHeight);
   const drawY = Math.round(floorY - drawHeight);
 
@@ -57,6 +57,7 @@ export function normalizePersonCutout({
     drawHeight,
     centerX,
     floorY,
+    baselineY,
     zIndex: transform?.zIndex ?? 1,
   };
 }

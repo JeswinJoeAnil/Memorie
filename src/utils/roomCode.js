@@ -27,3 +27,15 @@ export function normalizeRoomCode(input) {
   if (!input || typeof input !== 'string') return '';
   return input.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 }
+
+export function invitedRoomCode(url = window.location.href) {
+  const code = new URL(url).searchParams.get('studio');
+  return isValidRoomCode(code) ? code.trim().toUpperCase() : '';
+}
+
+export function studioInviteLink(code) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('studio', code);
+  url.hash = '';
+  return url.href;
+}

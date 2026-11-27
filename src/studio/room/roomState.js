@@ -41,9 +41,9 @@ export function createMember({
 export function createInitialRoomState({
   hostPeerId,
   hostName = 'Host',
-  backgroundId = 'y2k-chrome',
+  backgroundId = 'wine-velvet',
   timer = 3,
-  shots = 4,
+  shots = 3,
 }) {
   const hostMember = createMember({
     peerId: hostPeerId,

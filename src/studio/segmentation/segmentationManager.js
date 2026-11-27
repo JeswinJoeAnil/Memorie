@@ -175,7 +175,7 @@ class SegmentationManager {
         consecErrors: 0,
       };
       // Reuse contexts; disable smoothing on mask canvas for crisp alpha
-      try { entry.maskCtx.imageSmoothingEnabled = false; } catch {}
+      try { entry.maskCtx.imageSmoothingEnabled = false; } catch { }
       this.participantState.set(peerId, entry);
     } else if (entry.needsInputResize) {
       const s = this.config.segInputSize;
@@ -291,7 +291,7 @@ class SegmentationManager {
           entry.maskCanvas.width = maskW;
           entry.maskCanvas.height = maskH;
           entry.maskCtx = entry.maskCanvas.getContext('2d');
-          try { entry.maskCtx.imageSmoothingEnabled = false; } catch {}
+          try { entry.maskCtx.imageSmoothingEnabled = false; } catch { }
           entry.maskImageData = null;
           entry.prevMaskData = null;
         }
@@ -325,7 +325,9 @@ class SegmentationManager {
           maskH,
           entry.prevBounds,
           this.config.maskThresholdLow,
-          0.1
+          0.08,
+          1,
+          0.03
         );
         entry.prevBounds = segSmoothed;
 
@@ -334,9 +336,9 @@ class SegmentationManager {
         // larger than the mask crop, so the stretched mask leaked white wall
         // as a halo. Expanding before mapping keeps both crops on the same content.
         const segExpanded = expandVideoBoundsForPhone(segSmoothed, {
-          topPad: 0.05,
+          topPad: 0.03,
           sidePad: 0.04,
-          bottomPad: 0.02,
+          bottomPad: 0.0,
           minWidth: 0.4,
           minHeight: 0.4,
         });
@@ -359,7 +361,7 @@ class SegmentationManager {
       // Always close native masks
       if (result?.confidenceMasks) {
         for (let i = 0; i < result.confidenceMasks.length; i++) {
-          try { result.confidenceMasks[i]?.close(); } catch {}
+          try { result.confidenceMasks[i]?.close(); } catch { }
         }
       }
     } catch (err) {
@@ -390,29 +392,29 @@ class SegmentationManager {
         entry.segBounds || null
       );
       if (cut) res.cutout = cut;
-    } catch {}
+    } catch { }
     return res;
   }
 
   removeParticipant(peerId) {
     const entry = this.participantState.get(peerId);
     if (entry) {
-      try { entry.cutoutCanvas.width = 0; entry.cutoutCanvas.height = 0; } catch {}
-      try { entry.maskCanvas.width = 0; entry.maskCanvas.height = 0; } catch {}
-      try { entry.segInput.width = 0; entry.segInput.height = 0; } catch {}
+      try { entry.cutoutCanvas.width = 0; entry.cutoutCanvas.height = 0; } catch { }
+      try { entry.maskCanvas.width = 0; entry.maskCanvas.height = 0; } catch { }
+      try { entry.segInput.width = 0; entry.segInput.height = 0; } catch { }
     }
     this.participantState.delete(peerId);
   }
 
   destroy() {
     this.participantState.forEach((entry) => {
-      try { entry.cutoutCanvas.width = 0; entry.cutoutCanvas.height = 0; } catch {}
-      try { entry.maskCanvas.width = 0; entry.maskCanvas.height = 0; } catch {}
-      try { entry.segInput.width = 0; entry.segInput.height = 0; } catch {}
+      try { entry.cutoutCanvas.width = 0; entry.cutoutCanvas.height = 0; } catch { }
+      try { entry.maskCanvas.width = 0; entry.maskCanvas.height = 0; } catch { }
+      try { entry.segInput.width = 0; entry.segInput.height = 0; } catch { }
     });
     this.participantState.clear();
     if (this.segmenter?.close) {
-      try { this.segmenter.close(); } catch {}
+      try { this.segmenter.close(); } catch { }
       this.segmenter = null;
     }
 

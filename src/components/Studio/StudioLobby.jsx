@@ -1,3 +1,4 @@
+import { InviteButton } from './StudioReview.jsx';
 import React, { memo, useCallback, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Check, Copy, Sparkles, Users } from 'lucide-react';
@@ -78,7 +79,8 @@ function StudioLobbyComponent({
             </motion.span>
           ))}
         </div>
-        <p className="studio-lobby-hint">Share this code with your friends</p>
+        <p className="studio-lobby-hint">Invite a friend by link or share the room code.</p>
+        <InviteButton code={roomCode} />
         <motion.button
           type="button"
           className="studio-copy-btn"
